@@ -42,6 +42,7 @@ class HarpoDaemon:
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
         self._suppressed_keys: set[int] = set()
+        self._is_command_mode: bool = False
         self._uinput_device: evdev.UInput | None = None
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
@@ -71,8 +72,9 @@ class HarpoDaemon:
         if self.state == DaemonState.IDLE:
             self.state = DaemonState.RECORDING
             self.audio_streamer.start_recording()
-            print("capturing")
-            self._notify("Status", "capturing")
+            mode_str = "command" if self._is_command_mode else "capturing"
+            print(mode_str)
+            self._notify("Status", mode_str)
 
     async def _stop_recording(self) -> None:
         """
@@ -87,16 +89,40 @@ class HarpoDaemon:
             if audio_data.size > 0:
                 try:
                     print("Transcribing...")
+                    instruction = (
+                        "Listen to the following audio and reply whatever it says."
+                        if self._is_command_mode
+                        else "Transcribe this audio exactly."
+                    )
                     transcription = await self.api_client.transcribe(
                         audio_data=audio_data,
                         samplerate=self.audio_streamer.samplerate,
                         model=self.config.api_model,
+                        instruction=instruction,
                     )
 
                     if transcription.startswith("Error:"):
                         raise Exception(transcription)
 
                     print(f"\nTranscription: {transcription}\n")
+
+                    # Wait a bit for the user to release physical keys
+                    await asyncio.sleep(0.2)
+
+                    # Ensure all modifiers are logically UP before typing
+                    if self._uinput_device:
+                        for mod in [
+                            evdev.ecodes.KEY_LEFTCTRL,
+                            evdev.ecodes.KEY_RIGHTCTRL,
+                            evdev.ecodes.KEY_LEFTSHIFT,
+                            evdev.ecodes.KEY_RIGHTSHIFT,
+                            evdev.ecodes.KEY_LEFTALT,
+                            evdev.ecodes.KEY_RIGHTALT,
+                            evdev.ecodes.KEY_LEFTMETA,
+                            evdev.ecodes.KEY_RIGHTMETA,
+                        ]:
+                            self._uinput_device.write(evdev.ecodes.EV_KEY, mod, 0)
+                        self._uinput_device.syn()
 
                     # Type the text into the active window
                     print("Typing...")
@@ -143,16 +169,48 @@ class HarpoDaemon:
                         evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed
                         or evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed
                     )
+                    is_shift = (
+                        evdev.ecodes.KEY_LEFTSHIFT in self._keys_pressed
+                        or evdev.ecodes.KEY_RIGHTSHIFT in self._keys_pressed
+                    )
                     is_space = evdev.ecodes.KEY_SPACE in self._keys_pressed
 
                     should_suppress = False
 
                     if is_ctrl and is_space:
-                        # Mark current keys (Ctrl and Space) for suppression
+                        if self.state == DaemonState.IDLE:
+                            # Update mode based on Shift key
+                            self._is_command_mode = is_shift
+
+                        if self._uinput_device:
+                            # Emulate key up for ctrl and shift keys that leaked to the OS
+                            if evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed:
+                                self._uinput_device.write(
+                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0
+                                )
+                            if evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed:
+                                self._uinput_device.write(
+                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_RIGHTCTRL, 0
+                                )
+                            if evdev.ecodes.KEY_LEFTSHIFT in self._keys_pressed:
+                                self._uinput_device.write(
+                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTSHIFT, 0
+                                )
+                            if evdev.ecodes.KEY_RIGHTSHIFT in self._keys_pressed:
+                                self._uinput_device.write(
+                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_RIGHTSHIFT, 0
+                                )
+                            self._uinput_device.syn()
+
+                        # Mark current keys (Ctrl, Shift, Space) for suppression
                         if evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed:
                             self._suppressed_keys.add(evdev.ecodes.KEY_LEFTCTRL)
                         if evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed:
                             self._suppressed_keys.add(evdev.ecodes.KEY_RIGHTCTRL)
+                        if evdev.ecodes.KEY_LEFTSHIFT in self._keys_pressed:
+                            self._suppressed_keys.add(evdev.ecodes.KEY_LEFTSHIFT)
+                        if evdev.ecodes.KEY_RIGHTSHIFT in self._keys_pressed:
+                            self._suppressed_keys.add(evdev.ecodes.KEY_RIGHTSHIFT)
                         self._suppressed_keys.add(evdev.ecodes.KEY_SPACE)
 
                         if self.toggle:
@@ -164,6 +222,7 @@ class HarpoDaemon:
                         else:
                             self._start_recording()
                         should_suppress = True
+
                     else:
                         if not self.toggle and self.state == DaemonState.RECORDING:
                             await self._stop_recording()

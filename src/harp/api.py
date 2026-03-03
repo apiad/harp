@@ -28,7 +28,11 @@ class OpenRouterClient:
         self.client: AsyncOpenAI = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def transcribe(
-        self, audio_data: np.ndarray, samplerate: int, model: str
+        self,
+        audio_data: np.ndarray,
+        samplerate: int,
+        model: str,
+        instruction: str = "Transcribe this audio exactly.",
     ) -> str:
         """
         Sends audio data to OpenRouter for transcription using Chat Completions.
@@ -37,6 +41,7 @@ class OpenRouterClient:
             audio_data: The audio payload as a float32 numpy array.
             samplerate: The sample rate of the audio data.
             model: The multimodal model to use (e.g., openai/gpt-4o-audio-preview).
+            instruction: The instruction to give to the model.
 
         Returns:
             The transcribed text.
@@ -67,7 +72,7 @@ class OpenRouterClient:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Transcribe this audio exactly."},
+                            {"type": "text", "text": instruction},
                             {
                                 "type": "input_audio",
                                 "input_audio": {"data": base64_audio, "format": "wav"},
