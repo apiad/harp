@@ -28,3 +28,4 @@ Put done tasks into the Archive.
 - [x] Implement batch audio transcription via OpenRouter (See plan: `plans/audio-transcription.md`) (2026-03-03)
 - [x] Implement keyboard emulation for typing transcriptions (See plan: `plans/keyboard-emulation.md`) (2026-03-03)
 - [x] Implement 'Command' mode (Ctrl + Shift + Space) for voice instructions (2026-03-03)
+- [x] Implement Interactive Mode (EXPERIMENTAL/BROKEN) (See plan: `plans/interactive-mode.md`) (2026-03-03)
