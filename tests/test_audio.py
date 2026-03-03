@@ -32,7 +32,10 @@ def test_audio_callback(audio_streamer: AudioStreamer) -> None:
     Checks if the callback correctly appends data to the buffer.
     """
     data = np.array([0.1, 0.2, 0.3], dtype=np.float32)
-    audio_streamer._callback(data, 3, None, None)
+    # Test with status (covers line 39)
+    mock_status = MagicMock()
+    mock_status.__bool__.return_value = True
+    audio_streamer._callback(data, 3, None, mock_status)
     assert len(audio_streamer.audio_buffer) == 1
     assert np.array_equal(audio_streamer.audio_buffer[0], data)
 
@@ -83,3 +86,14 @@ def test_start_stop_recording(
     assert audio_streamer.audio_buffer == []
     assert data.size == 1
     assert data[0] == 0.5
+
+
+@patch("sounddevice.InputStream", side_effect=Exception("Hardware failure"))
+def test_start_recording_error(
+    mock_input_stream: MagicMock, audio_streamer: AudioStreamer
+) -> None:
+    """
+    Verifies error handling when starting audio fails (covers lines 50-52).
+    """
+    audio_streamer.start_recording()
+    assert audio_streamer._stream is None

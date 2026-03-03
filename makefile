@@ -4,7 +4,7 @@ all: check
 
 test:
 	@echo "Running tests..."
-	uv run pytest
+	uv run pytest --cov=src --cov-report=term-missing
 
 lint:
 	@echo "Running linter..."

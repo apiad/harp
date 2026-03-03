@@ -27,6 +27,15 @@ def test_typer_initial_state(typer: WaylandTyper) -> None:
     assert typer.device is not None
 
 
+@patch("uinput.Device", side_effect=OSError("Permission denied"))
+def test_typer_init_error(mock_device: MagicMock) -> None:
+    """
+    Verifies error handling during initialization (covers lines 44-49).
+    """
+    typer_obj = WaylandTyper()
+    assert typer_obj.device is None
+
+
 def test_create_key_map(typer: WaylandTyper) -> None:
     """
     Verifies the character mapping contains standard keys.
@@ -73,6 +82,15 @@ def test_backspace(typer: WaylandTyper) -> None:
     assert typer.device.emit.call_count == 6
 
 
+def test_backspace_no_device(typer: WaylandTyper) -> None:
+    """
+    Verifies backspace logic when device is missing (covers line 158).
+    """
+    typer.device = None
+    # Should not raise
+    typer.backspace(1)
+
+
 @patch("time.sleep")
 def test_type_text_basic(mock_sleep: MagicMock, typer: WaylandTyper) -> None:
     """
@@ -87,6 +105,15 @@ def test_type_text_basic(mock_sleep: MagicMock, typer: WaylandTyper) -> None:
     assert typer.device.emit.call_count == 6
 
 
+def test_type_text_no_device(typer: WaylandTyper) -> None:
+    """
+    Verifies type_text logic when device is missing (covers lines 173-174).
+    """
+    typer.device = None
+    # Should not raise
+    typer.type_text("abc")
+
+
 @patch("harp.input.WaylandTyper._type_unicode")
 def test_type_text_unicode_fallback(
     mock_type_unicode: MagicMock, typer: WaylandTyper
@@ -96,6 +123,17 @@ def test_type_text_unicode_fallback(
     """
     typer.type_text("€")
     mock_type_unicode.assert_called_once_with("€")
+
+
+@patch("harp.input.WaylandTyper._type_unicode", side_effect=Exception("uinput error"))
+def test_type_text_unicode_error(
+    mock_type_unicode: MagicMock, typer: WaylandTyper
+) -> None:
+    """
+    Verifies error handling when unicode typing fails (covers lines 191-192).
+    """
+    # Should not raise, just print warning
+    typer.type_text("€")
 
 
 @patch("time.sleep")
