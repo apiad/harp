@@ -20,11 +20,23 @@ def start(
     full: bool = typer.Option(
         False, "--full", "-f", help="Type all characters including symbols (opt-in)"
     ),
+    interactive: bool = typer.Option(
+        False, "--interactive", "-i", help="Enable real-time interactive transcription"
+    ),
+    interval: float = typer.Option(
+        2.0, "--interval", help="Sampling interval for interactive mode in seconds"
+    ),
 ) -> None:
     """
     Starts the Harp background daemon.
     """
-    daemon = HarpoDaemon(device_path=device, toggle=toggle, full_mode=full)
+    daemon = HarpoDaemon(
+        device_path=device,
+        toggle=toggle,
+        full_mode=full,
+        interactive=interactive,
+        interval=interval,
+    )
     daemon.run()
 
 

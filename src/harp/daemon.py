@@ -34,6 +34,8 @@ class HarpoDaemon:
         device_path: str | None = None,
         toggle: bool = False,
         full_mode: bool = False,
+        interactive: bool = False,
+        interval: float = 2.0,
     ) -> None:
         """
         Initializes the HarpoDaemon with its components and state.
@@ -42,10 +44,15 @@ class HarpoDaemon:
             device_path: Optional path or name of the device to grab.
             toggle: Whether to toggle state on keypress.
             full_mode: Whether to type all characters or just a safe set.
+            interactive: Whether to enable real-time transcription.
+            interval: Sampling interval for interactive mode.
         """
         self.device_path: str | None = device_path
         self.toggle: bool = toggle
         self.full_mode: bool = full_mode
+        self.interactive: bool = interactive
+        self.interval: float = interval
+
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
         self._suppressed_keys: set[int] = set()
@@ -55,12 +62,25 @@ class HarpoDaemon:
         self.audio_streamer = AudioStreamer()
         self.typer = WaylandTyper(full_mode=full_mode)
 
+        # State for interactive mode
+        self.current_session_text: str = ""
+        self._interactive_task: asyncio.Task | None = None
+        self._interactive_lock = asyncio.Lock()
+
         # Load configuration and initialize API client
         self.config = HarpoConfig()
         self.api_client = OpenRouterClient(
             api_key=self.config.api_key,
             base_url=self.config.api_base_url,
         )
+
+        if self.interactive:
+            print("\n" + "!" * 60)
+            print(
+                "!!! WARNING: INTERACTIVE MODE IS EXPERIMENTAL AND CURRENTLY BROKEN !!!"
+            )
+            print("!!! It may produce weird typing behavior or out-of-sync text.   !!!")
+            print("!" * 60 + "\n")
 
     def _notify(self, title: str, message: str) -> None:
         """
@@ -72,16 +92,102 @@ class HarpoDaemon:
         """
         subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "1000"])
 
+    def _release_modifiers(self) -> None:
+        """
+        Ensures all modifier keys are logically UP on the virtual passthrough device.
+        """
+        if not self._uinput_device:
+            return
+
+        modifiers = [
+            evdev.ecodes.KEY_LEFTCTRL,
+            evdev.ecodes.KEY_RIGHTCTRL,
+            evdev.ecodes.KEY_LEFTSHIFT,
+            evdev.ecodes.KEY_RIGHTSHIFT,
+            evdev.ecodes.KEY_LEFTALT,
+            evdev.ecodes.KEY_RIGHTALT,
+            evdev.ecodes.KEY_LEFTMETA,
+            evdev.ecodes.KEY_RIGHTMETA,
+        ]
+
+        for mod in modifiers:
+            self._uinput_device.write(evdev.ecodes.EV_KEY, mod, 0)
+        self._uinput_device.syn()
+
     def _start_recording(self) -> None:
         """
         Transitions to RECORDING and starts audio capture.
         """
         if self.state == DaemonState.IDLE:
             self.state = DaemonState.RECORDING
+            self.current_session_text = ""
             self.audio_streamer.start_recording()
             mode_str = "command" if self._is_command_mode else "capturing"
             print(mode_str)
             self._notify("Status", mode_str)
+
+            if self.interactive:
+                self._interactive_task = asyncio.create_task(self._interactive_loop())
+
+    async def _interactive_loop(self) -> None:
+        """
+        Periodically samples audio and types incremental transcription.
+        """
+        try:
+            while self.state == DaemonState.RECORDING:
+                # Wait FIRST to allow some audio to accumulate
+                await asyncio.sleep(self.interval)
+
+                async with self._interactive_lock:
+                    if self.state != DaemonState.RECORDING:
+                        break
+
+                    audio_data = self.audio_streamer.get_current_buffer()
+                    if audio_data.size == 0:
+                        continue
+
+                    instruction = (
+                        "Listen to the following audio and reply whatever it says."
+                        if self._is_command_mode
+                        else "Transcribe this audio exactly."
+                    )
+
+                    # Fetch transcription
+                    raw_text = await self.api_client.transcribe(
+                        audio_data=audio_data,
+                        samplerate=self.audio_streamer.samplerate,
+                        model=self.config.api_model,
+                        instruction=instruction,
+                    )
+
+                    if (
+                        raw_text.startswith("Error:")
+                        or self.state != DaemonState.RECORDING
+                    ):
+                        continue
+
+                    new_text = self.typer.filter_text(raw_text)
+
+                    if new_text == self.current_session_text:
+                        pass
+                    elif new_text.startswith(self.current_session_text):
+                        # Type only the suffix
+                        suffix = new_text[len(self.current_session_text) :]
+                        if suffix:
+                            self._release_modifiers()
+                            self.typer.type_text(suffix)
+                            self.current_session_text = new_text
+                    else:
+                        # Whisper refined the beginning, replace everything
+                        self._release_modifiers()
+                        self.typer.backspace(len(self.current_session_text))
+                        self.typer.type_text(new_text)
+                        self.current_session_text = new_text
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"Error in interactive loop: {e}")
 
     async def _stop_recording(self) -> None:
         """
@@ -89,6 +195,16 @@ class HarpoDaemon:
         """
         if self.state == DaemonState.RECORDING:
             self.state = DaemonState.PROCESSING
+
+            # Cancel interactive task
+            if self._interactive_task:
+                self._interactive_task.cancel()
+                try:
+                    await self._interactive_task
+                except asyncio.exceptions.CancelledError:
+                    pass
+                self._interactive_task = None
+
             audio_data = self.audio_streamer.stop_recording()
             print("idle")
             self._notify("Status", "idle")
@@ -114,32 +230,34 @@ class HarpoDaemon:
                     print(f"\nTranscription: {transcription}\n")
 
                     # Wait a bit for the user to release physical keys
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.5)
+                    self._release_modifiers()
 
-                    # Ensure all modifiers are logically UP before typing
-                    if self._uinput_device:
-                        for mod in [
-                            evdev.ecodes.KEY_LEFTCTRL,
-                            evdev.ecodes.KEY_RIGHTCTRL,
-                            evdev.ecodes.KEY_LEFTSHIFT,
-                            evdev.ecodes.KEY_RIGHTSHIFT,
-                            evdev.ecodes.KEY_LEFTALT,
-                            evdev.ecodes.KEY_RIGHTALT,
-                            evdev.ecodes.KEY_LEFTMETA,
-                            evdev.ecodes.KEY_RIGHTMETA,
-                        ]:
-                            self._uinput_device.write(evdev.ecodes.EV_KEY, mod, 0)
-                        self._uinput_device.syn()
+                    # Final reconciliation with interactive text
+                    filtered_final = self.typer.filter_text(transcription)
 
-                    # Type the text into the active window
-                    print("Typing...")
-                    self.typer.type_text(transcription)
+                    if filtered_final == self.current_session_text:
+                        # Nothing more to type
+                        pass
+                    elif filtered_final.startswith(self.current_session_text):
+                        # Just type the missing suffix
+                        suffix = filtered_final[len(self.current_session_text) :]
+                        if suffix:
+                            print("Typing final suffix...")
+                            self.typer.type_text(suffix)
+                    else:
+                        # Full replacement to ensure correctness
+                        print("Replacing session text with final transcription...")
+                        if self.current_session_text:
+                            self.typer.backspace(len(self.current_session_text))
+                        self.typer.type_text(filtered_final)
 
                 except Exception as e:
                     error_msg = f"Transcription or typing failed: {e}"
                     print(error_msg)
                     self._notify("Error", error_msg)
 
+            self.current_session_text = ""
             self.state = DaemonState.IDLE
 
     async def _toggle_state(self) -> None:
@@ -189,25 +307,7 @@ class HarpoDaemon:
                             # Update mode based on Shift key
                             self._is_command_mode = is_shift
 
-                        if self._uinput_device:
-                            # Emulate key up for ctrl and shift keys that leaked to the OS
-                            if evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed:
-                                self._uinput_device.write(
-                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0
-                                )
-                            if evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed:
-                                self._uinput_device.write(
-                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_RIGHTCTRL, 0
-                                )
-                            if evdev.ecodes.KEY_LEFTSHIFT in self._keys_pressed:
-                                self._uinput_device.write(
-                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTSHIFT, 0
-                                )
-                            if evdev.ecodes.KEY_RIGHTSHIFT in self._keys_pressed:
-                                self._uinput_device.write(
-                                    evdev.ecodes.EV_KEY, evdev.ecodes.KEY_RIGHTSHIFT, 0
-                                )
-                            self._uinput_device.syn()
+                        self._release_modifiers()
 
                         # Mark current keys (Ctrl, Shift, Space) for suppression
                         if evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed:
