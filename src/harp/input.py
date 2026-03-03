@@ -31,6 +31,7 @@ class WaylandTyper:
         keys.add(uinput.KEY_U)
         keys.add(uinput.KEY_ENTER)
         keys.add(uinput.KEY_SPACE)
+        keys.add(uinput.KEY_BACKSPACE)
 
         # Keys for hex digits (0-9, a-f)
         for i in range(10):
@@ -96,7 +97,7 @@ class WaylandTyper:
 
     def _type_unicode(self, char: str) -> None:
         """
-        Types a character using the Linux Unicode sequence (Ctrl+Shift+U + hex + Enter).
+        Types a character using the Linux Unicode sequence (Ctrl+Shift+U + hex + Release).
         """
         hex_code = f"{ord(char):04x}"
 
@@ -105,8 +106,6 @@ class WaylandTyper:
         self.device.emit(uinput.KEY_LEFTSHIFT, 1)
         self.device.emit(uinput.KEY_U, 1)
         self.device.emit(uinput.KEY_U, 0)
-        self.device.emit(uinput.KEY_LEFTSHIFT, 0)
-        self.device.emit(uinput.KEY_LEFTCTRL, 0)
 
         time.sleep(0.01)
 
@@ -117,10 +116,51 @@ class WaylandTyper:
             self.device.emit(key_code, 0)
             time.sleep(0.001)
 
-        # Confirm with Enter (fixes the extra spaces issue)
-        self.device.emit(uinput.KEY_ENTER, 1)
-        self.device.emit(uinput.KEY_ENTER, 0)
+        # Release modifiers to confirm (most compatible method)
+        self.device.emit(uinput.KEY_LEFTSHIFT, 0)
+        self.device.emit(uinput.KEY_LEFTCTRL, 0)
         time.sleep(0.01)
+
+    def filter_text(self, text: str) -> str:
+        """
+        Filters text based on the current mode (safe vs full).
+
+        Args:
+            text: The raw transcription text.
+
+        Returns:
+            The filtered text suitable for typing.
+        """
+        safe_punctuation = " ,.\n\t"
+
+        if self.full_mode:
+            return text
+
+        filtered = []
+        for char in text:
+            is_latin = ord(char) > 127
+            is_alphanumeric = char.isalnum()
+            is_safe_punct = char in safe_punctuation
+
+            if is_alphanumeric or is_safe_punct or is_latin:
+                filtered.append(char)
+
+        return "".join(filtered)
+
+    def backspace(self, count: int) -> None:
+        """
+        Emits KEY_BACKSPACE events to delete text.
+
+        Args:
+            count: Number of backspaces to send.
+        """
+        if not self.device or count <= 0:
+            return
+
+        for _ in range(count):
+            self.device.emit(uinput.KEY_BACKSPACE, 1)
+            self.device.emit(uinput.KEY_BACKSPACE, 0)
+            time.sleep(0.001)
 
     def type_text(self, text: str) -> None:
         """
@@ -133,21 +173,7 @@ class WaylandTyper:
             print("Typer device not initialized. Cannot type text.")
             return
 
-        safe_punctuation = " ,.\n\t"
-        # Dead keys that require a space if the next char is not a vowel
-        dead_keys = ["'", "`"]
-        vowels = "aeiouAEIOU"
-
-        for i, char in enumerate(text):
-            is_latin = ord(char) > 127
-            is_alphanumeric = char.isalnum()
-            is_safe_punct = char in safe_punctuation
-
-            # Filtering logic for non-full mode
-            if not self.full_mode:
-                if not (is_alphanumeric or is_safe_punct or is_latin):
-                    continue
-
+        for char in text:
             if char in self._key_map:
                 key_code, needs_shift = self._key_map[char]
 
@@ -159,14 +185,6 @@ class WaylandTyper:
 
                 if needs_shift:
                     self.device.emit(uinput.KEY_LEFTSHIFT, 0)
-
-                # Dead key logic: if it's a potential dead key, check the next char
-                if char in dead_keys:
-                    next_char = text[i + 1] if i + 1 < len(text) else ""
-                    if next_char not in vowels:
-                        # Send space to render the dead key
-                        self.device.emit(uinput.KEY_SPACE, 1)
-                        self.device.emit(uinput.KEY_SPACE, 0)
             else:
                 try:
                     self._type_unicode(char)
