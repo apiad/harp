@@ -18,7 +18,7 @@ Put done tasks into the Archive.
 
 ### UX & Customization
 - [ ] Configure custom hotkeys via .env or YAML (#5)
-- [ ] Implement Wayland status overlay (layer-shell) (#6)
+- [ ] Implement Wayland status overlay (HUD) for interim text (#6) (See plan: `plans/overhaul-interactive-mode.md`)
 - [ ] Support for multiple international keyboard layouts (ISO, etc.) (#13)
 
 ### AI Features
@@ -29,7 +29,7 @@ Put done tasks into the Archive.
 ### Infrastructure
 - [ ] Implement Voice Activity Detection (VAD) for auto-stop (#10)
 - [ ] Integrate XDG Global Shortcuts portal (D-Bus) (#11)
-- [ ] Fix Interactive Mode synchronization and typing bugs (#4)
+- [ ] Overhaul Interactive Mode for stable real-time typing (#4) (See plan: `plans/overhaul-interactive-mode.md`)
 
 ### Portability
 - [ ] Research and scaffold macOS support (CoreAudio/Quartz) (#12)
