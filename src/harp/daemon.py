@@ -11,6 +11,7 @@ import evdev
 from harp.api import OpenRouterClient
 from harp.audio import AudioStreamer
 from harp.config import HarpoConfig
+from harp.input import WaylandTyper
 
 
 class DaemonState(Enum):
@@ -44,6 +45,7 @@ class HarpoDaemon:
         self._uinput_device: evdev.UInput | None = None
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
+        self.typer = WaylandTyper()
 
         # Load configuration and initialize API client
         self.config = HarpoConfig()
@@ -83,13 +85,27 @@ class HarpoDaemon:
             self._notify("Status", "idle")
 
             if audio_data.size > 0:
-                print("Transcribing...")
-                transcription = await self.api_client.transcribe(
-                    audio_data=audio_data,
-                    samplerate=self.audio_streamer.samplerate,
-                    model=self.config.api_model,
-                )
-                print(f"\nTranscription: {transcription}\n")
+                try:
+                    print("Transcribing...")
+                    transcription = await self.api_client.transcribe(
+                        audio_data=audio_data,
+                        samplerate=self.audio_streamer.samplerate,
+                        model=self.config.api_model,
+                    )
+
+                    if transcription.startswith("Error:"):
+                        raise Exception(transcription)
+
+                    print(f"\nTranscription: {transcription}\n")
+
+                    # Type the text into the active window
+                    print("Typing...")
+                    self.typer.type_text(transcription)
+
+                except Exception as e:
+                    error_msg = f"Transcription or typing failed: {e}"
+                    print(error_msg)
+                    self._notify("Error", error_msg)
 
             self.state = DaemonState.IDLE
 
@@ -178,7 +194,11 @@ class HarpoDaemon:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
 
         # Narrowly define a keyboard as having standard letter keys (A-Z)
+        # And EXCLUDE our own virtual keyboard to avoid feedback loops
         def is_real_keyboard(d: evdev.InputDevice) -> bool:
+            if d.name == "Harp Virtual Keyboard":
+                return False
+
             capabilities = d.capabilities()
             if evdev.ecodes.EV_KEY not in capabilities:
                 return False
@@ -210,7 +230,7 @@ class HarpoDaemon:
         try:
             self._uinput_device = evdev.UInput(
                 {evdev.ecodes.EV_KEY: list(all_keys)},
-                name="Harp Virtual Keyboard",
+                name="Harp Virtual passthrough",
             )
         except (OSError, PermissionError):
             print(
