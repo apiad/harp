@@ -29,16 +29,23 @@ class HarpoDaemon:
     Manages the lifecycle of the Harpo daemon.
     """
 
-    def __init__(self, device_path: str | None = None, toggle: bool = False) -> None:
+    def __init__(
+        self,
+        device_path: str | None = None,
+        toggle: bool = False,
+        full_mode: bool = False,
+    ) -> None:
         """
         Initializes the HarpoDaemon with its components and state.
 
         Args:
             device_path: Optional path or name of the device to grab.
             toggle: Whether to toggle state on keypress.
+            full_mode: Whether to type all characters or just a safe set.
         """
         self.device_path: str | None = device_path
         self.toggle: bool = toggle
+        self.full_mode: bool = full_mode
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
         self._suppressed_keys: set[int] = set()
@@ -46,7 +53,7 @@ class HarpoDaemon:
         self._uinput_device: evdev.UInput | None = None
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
-        self.typer = WaylandTyper()
+        self.typer = WaylandTyper(full_mode=full_mode)
 
         # Load configuration and initialize API client
         self.config = HarpoConfig()
@@ -107,7 +114,7 @@ class HarpoDaemon:
                     print(f"\nTranscription: {transcription}\n")
 
                     # Wait a bit for the user to release physical keys
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.3)
 
                     # Ensure all modifiers are logically UP before typing
                     if self._uinput_device:
@@ -255,7 +262,7 @@ class HarpoDaemon:
         # Narrowly define a keyboard as having standard letter keys (A-Z)
         # And EXCLUDE our own virtual keyboard to avoid feedback loops
         def is_real_keyboard(d: evdev.InputDevice) -> bool:
-            if d.name == "Harp Virtual Keyboard":
+            if "Harp Virtual" in d.name:
                 return False
 
             capabilities = d.capabilities()

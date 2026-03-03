@@ -12,10 +12,14 @@ class WaylandTyper:
     Emulates a physical keyboard to type text in Wayland environments.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, full_mode: bool = False) -> None:
         """
         Initializes the WaylandTyper device with US keyboard capabilities.
+
+        Args:
+            full_mode: Whether to allow all characters or just a safe subset.
         """
+        self.full_mode = full_mode
         # Standard US keys mapping: character -> (uinput_key, needs_shift)
         self._key_map: dict[str, tuple[int, bool]] = self._create_key_map()
 
@@ -26,6 +30,7 @@ class WaylandTyper:
         keys.add(uinput.KEY_LEFTCTRL)
         keys.add(uinput.KEY_U)
         keys.add(uinput.KEY_ENTER)
+        keys.add(uinput.KEY_SPACE)
 
         # Keys for hex digits (0-9, a-f)
         for i in range(10):
@@ -72,6 +77,8 @@ class WaylandTyper:
             ";": (uinput.KEY_SEMICOLON, False),
             '"': (uinput.KEY_APOSTROPHE, True),
             "'": (uinput.KEY_APOSTROPHE, False),
+            "`": (uinput.KEY_GRAVE, False),
+            "~": (uinput.KEY_GRAVE, True),
         }
 
         # Letters a-z
@@ -91,7 +98,6 @@ class WaylandTyper:
         """
         Types a character using the Linux Unicode sequence (Ctrl+Shift+U + hex + Enter).
         """
-        # Ensure 4-digit hex code for better compatibility
         hex_code = f"{ord(char):04x}"
 
         # Press Ctrl+Shift+U
@@ -99,11 +105,9 @@ class WaylandTyper:
         self.device.emit(uinput.KEY_LEFTSHIFT, 1)
         self.device.emit(uinput.KEY_U, 1)
         self.device.emit(uinput.KEY_U, 0)
-        # Release Shift/Ctrl before hex entry (Standard behavior for many apps)
         self.device.emit(uinput.KEY_LEFTSHIFT, 0)
         self.device.emit(uinput.KEY_LEFTCTRL, 0)
 
-        # Small delay to let the app open the unicode entry buffer
         time.sleep(0.01)
 
         # Type hex digits
@@ -113,11 +117,9 @@ class WaylandTyper:
             self.device.emit(key_code, 0)
             time.sleep(0.001)
 
-        # Press Enter to confirm the sequence
+        # Confirm with Enter (fixes the extra spaces issue)
         self.device.emit(uinput.KEY_ENTER, 1)
         self.device.emit(uinput.KEY_ENTER, 0)
-
-        # Small delay after confirming unicode
         time.sleep(0.01)
 
     def type_text(self, text: str) -> None:
@@ -131,7 +133,21 @@ class WaylandTyper:
             print("Typer device not initialized. Cannot type text.")
             return
 
-        for char in text:
+        safe_punctuation = " ,.\n\t"
+        # Dead keys that require a space if the next char is not a vowel
+        dead_keys = ["'", "`"]
+        vowels = "aeiouAEIOU"
+
+        for i, char in enumerate(text):
+            is_latin = ord(char) > 127
+            is_alphanumeric = char.isalnum()
+            is_safe_punct = char in safe_punctuation
+
+            # Filtering logic for non-full mode
+            if not self.full_mode:
+                if not (is_alphanumeric or is_safe_punct or is_latin):
+                    continue
+
             if char in self._key_map:
                 key_code, needs_shift = self._key_map[char]
 
@@ -143,12 +159,18 @@ class WaylandTyper:
 
                 if needs_shift:
                     self.device.emit(uinput.KEY_LEFTSHIFT, 0)
+
+                # Dead key logic: if it's a potential dead key, check the next char
+                if char in dead_keys:
+                    next_char = text[i + 1] if i + 1 < len(text) else ""
+                    if next_char not in vowels:
+                        # Send space to render the dead key
+                        self.device.emit(uinput.KEY_SPACE, 1)
+                        self.device.emit(uinput.KEY_SPACE, 0)
             else:
-                # Try Unicode entry for non-ASCII/unmapped characters
                 try:
                     self._type_unicode(char)
                 except Exception:
                     print(f"Warning: Character '{char}' could not be typed. Skipping.")
 
-            # Small delay between characters
             time.sleep(0.001)
