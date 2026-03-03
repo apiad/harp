@@ -27,16 +27,19 @@ class HarpoHUD:
             return
 
         # We use a short timeout so it doesn't stay forever.
-        # On many systems, --replace-id (or similar) is not standard across all notify-send versions.
-        # A common trick to avoid flooding is to use a fixed summary.
+        # Use low urgency and transient hint to reduce KDE visual noise.
         cmd = [
             "notify-send",
             "Harp (Interim)",
             text,
             "-t",
-            "2000",
+            "1000",
+            "-u",
+            "low",
             "-h",
             "string:x-canonical-private-synchronous:harp-interim",
+            "-h",
+            "int:transient:1",
         ]
         try:
             subprocess.run(cmd, check=False)

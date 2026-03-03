@@ -166,9 +166,6 @@ class HarpoDaemon:
         self.hud.show()
         self.hud.update_text("...")
 
-        # Local Agreement state: we only commit if we see the same delta twice
-        pending_delta = ""
-
         try:
             while self.state == DaemonState.RECORDING:
                 # Wait FIRST to allow some audio to accumulate
@@ -184,8 +181,10 @@ class HarpoDaemon:
                         continue
 
                     instruction = (
-                        f"Listen to the following audio and reply with the next words to type. "
-                        f"Context (already typed): '{self.current_session_text}'"
+                        "You are a real-time transcription assistant. "
+                        f"The user has already typed: '{self.current_session_text}'. "
+                        "Listen to the last 5 seconds of audio and output ONLY the NEW words that follow the context. "
+                        "Do NOT repeat the context. If nothing new is heard, return an empty string for delta_text."
                     )
 
                     # Fetch transcription
@@ -196,6 +195,10 @@ class HarpoDaemon:
                             model=self.config.api_model,
                             instruction=instruction,
                             response_model=InteractiveResponse,
+                        )
+                        # Debug logging
+                        self.console.print(
+                            f"[dim]Interactive: delta='{response.delta_text}' is_final={response.is_final}[/]"
                         )
                     except Exception as e:
                         self.console.print(
@@ -213,18 +216,15 @@ class HarpoDaemon:
                     if interim_text:
                         self.hud.update_text(interim_text)
 
-                    # Local Agreement: Only commit if we get the same delta twice
-                    if new_delta and new_delta == pending_delta:
+                    # Local Agreement (Aggressive 1-pass for testing)
+                    if new_delta:
                         if not self.pause_typing:
                             self._release_modifiers()
-                            # Sync the active application with the new stable text
+                            # Sync the active application with the new text
                             self.typer.type_diff(
                                 self.current_session_text, interim_text
                             )
                             self.current_session_text = interim_text
-                        pending_delta = ""  # Reset after commitment
-                    else:
-                        pending_delta = new_delta
 
         except asyncio.CancelledError:
             pass
