@@ -1,6 +1,18 @@
-.PHONY: all test lint format
+.PHONY: all test lint format check
 
-all: test lint
+all: check
 
 test:
 	@echo "Running tests..."
+	uv run pytest
+
+lint:
+	@echo "Running linter..."
+	uv run ruff check .
+	uv run ruff format --check .
+
+format:
+	@echo "Formatting code..."
+	uv run ruff format .
+
+check: lint test
