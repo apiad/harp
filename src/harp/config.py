@@ -2,7 +2,11 @@
 Configuration management for Harpo.
 """
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+# Load environment variables from .env
+load_dotenv()
 
 
 class HarpoConfig(BaseSettings):
@@ -10,13 +14,14 @@ class HarpoConfig(BaseSettings):
     Configuration settings for Harpo, including OpenRouter API details.
     """
 
-    openrouter_api_key: str = ""
-    stt_model: str = "openai/whisper-large-v3"
+    api_key: str = ""
+    api_base_url: str = "https://openrouter.ai/api/v1"
+    api_model: str = "openai/gpt-4o-audio-preview"
 
     class Config:
         """
         Configuration for the Pydantic settings model.
         """
 
-        env_prefix: str = "HARPO_"
+        env_prefix: str = "HARP_"
         env_file: str = ".env"
