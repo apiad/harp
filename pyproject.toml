@@ -1,5 +1,5 @@
 [project]
-name = "harp"
+name = "harpio"
 version = "0.2.1"
 description = "A background daemon for Wayland that transcribes audio and types results."
 readme = "README.md"
@@ -21,6 +21,9 @@ dependencies = [
 
 [project.scripts]
 harp = "harp.__main__:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harp"]
 
 [tool.ruff]
 exclude = [".gemini"]

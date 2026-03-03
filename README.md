@@ -34,8 +34,9 @@ uvx harp
 ### Using `pipx`
 For a persistent global installation:
 ```bash
-pipx install harp  # Replace with actual PyPI name if different
+pipx install harpio
 ```
+
 
 ### From Source
 ```bash
