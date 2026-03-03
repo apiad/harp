@@ -1,6 +1,6 @@
 # Harp
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](https://github.com/apiad/harp/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue.svg)](https://github.com/apiad/harp/releases/tag/v0.2.0)
 
 A background daemon for Wayland that transcribes audio and types results.
 
