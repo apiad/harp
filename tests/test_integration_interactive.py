@@ -55,11 +55,11 @@ async def test_interactive_transcription_stitching():
     # Simulation Parameters (Matching daemon.py)
     warmup_seconds = 15.0
     window_seconds = 10.0
-    
-    chunk_step_seconds = 2.0 # Simulate an iteration every 2 seconds
+
+    chunk_step_seconds = 2.0  # Simulate an iteration every 2 seconds
     total_samples = len(full_audio)
     current_sample = 0
-    
+
     intermediate_results = []
     start_time = time.time()
 
@@ -67,11 +67,11 @@ async def test_interactive_transcription_stitching():
 
     while current_sample < total_samples:
         iter_start = time.time()
-        
+
         # Advance time
         current_sample += int(chunk_step_seconds * samplerate)
         current_duration = current_sample / samplerate
-        
+
         if current_duration < warmup_seconds:
             print(f"[{current_duration:4.1f}s] Buffering...")
             continue
@@ -79,7 +79,7 @@ async def test_interactive_transcription_stitching():
         # Get rolling window (last 10 seconds)
         window_start = max(0, current_sample - int(window_seconds * samplerate))
         audio_data = full_audio[window_start:current_sample].reshape(-1, 1)
-        
+
         # 4. Context-Aware Prompting (Matching daemon.py logic)
         context = daemon.current_session_text[-200:]
         instruction = (
@@ -115,11 +115,13 @@ async def test_interactive_transcription_stitching():
             best_match_idx = -1
             max_ratio = 0
             lookback = min(len(words_session), 10)
-            
+
             for i in range(1, lookback + 1):
                 overlap_candidate = " ".join(words_session[-i:])
                 window_start_text = " ".join(words_window[: i + 2])
-                ratio = fuzz.partial_ratio(overlap_candidate.lower(), window_start_text.lower())
+                ratio = fuzz.partial_ratio(
+                    overlap_candidate.lower(), window_start_text.lower()
+                )
 
                 if ratio > 85 and ratio > max_ratio:
                     max_ratio = ratio
@@ -127,23 +129,27 @@ async def test_interactive_transcription_stitching():
 
             if best_match_idx != -1:
                 remaining_words = words_window[best_match_idx:]
-                new_total_text = daemon.current_session_text + " " + " ".join(remaining_words)
+                new_total_text = (
+                    daemon.current_session_text + " " + " ".join(remaining_words)
+                )
             else:
                 if len(words_window) > 5:
-                    new_total_text = (daemon.current_session_text + " " + window_text).strip()
+                    new_total_text = (
+                        daemon.current_session_text + " " + window_text
+                    ).strip()
                 else:
                     new_total_text = daemon.current_session_text
 
         delta = new_total_text[len(daemon.current_session_text) :].strip()
         daemon.current_session_text = new_total_text
 
-        intermediate_results.append({
-            "chunk_end_sec": current_duration,
-            "delta": delta,
-            "latency": api_latency
-        })
-        
-        print(f"[{current_duration:4.1f}s] Latency: {api_latency:.2f}s | Delta: '{delta}'")
+        intermediate_results.append(
+            {"chunk_end_sec": current_duration, "delta": delta, "latency": api_latency}
+        )
+
+        print(
+            f"[{current_duration:4.1f}s] Latency: {api_latency:.2f}s | Delta: '{delta}'"
+        )
 
     total_duration = time.time() - start_time
     final_text = daemon.current_session_text
@@ -157,4 +163,6 @@ async def test_interactive_transcription_stitching():
     print(f"Final Similarity: {similarity}%")
     print(f"Final Result: {final_text[:200]}...")
 
-    assert similarity >= 50, f"Interactive stitching similarity ({similarity}%) is too low."
+    assert similarity >= 50, (
+        f"Interactive stitching similarity ({similarity}%) is too low."
+    )

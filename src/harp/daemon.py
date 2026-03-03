@@ -169,7 +169,6 @@ class HarpoDaemon:
 
         warmup_seconds = 15.0
         window_seconds = 10.0
-        overlap_seconds = 5.0
 
         try:
             while self.state == DaemonState.RECORDING:
@@ -200,7 +199,9 @@ class HarpoDaemon:
 
                     # 4. Context-Aware Prompting
                     # We tell the model what has already been typed so it can anchor the new text
-                    context = self.current_session_text[-200:]  # Last 200 chars for brevity
+                    context = self.current_session_text[
+                        -200:
+                    ]  # Last 200 chars for brevity
                     instruction = (
                         "You are a real-time transcription assistant. "
                         f"The user has already said: '...{context}'. "
@@ -218,7 +219,9 @@ class HarpoDaemon:
                             response_model=BatchResponse,
                         )
                         window_text = self.typer.filter_text(response.full_text)
-                        self.console.print(f"[dim]Interactive Window: '{window_text}'[/]")
+                        self.console.print(
+                            f"[dim]Interactive Window: '{window_text}'[/]"
+                        )
                     except Exception as e:
                         self.console.print(f"[yellow]API error: {e}[/]")
                         continue
@@ -238,7 +241,7 @@ class HarpoDaemon:
                         max_ratio = 0
                         # Look back up to 10 words for an overlap
                         lookback = min(len(words_session), 10)
-                        
+
                         for i in range(1, lookback + 1):
                             overlap_candidate = " ".join(words_session[-i:])
                             # Compare with the start of the window (first i+2 words to handle minor variations)
@@ -256,14 +259,18 @@ class HarpoDaemon:
                             # We estimate the skip point in the window text
                             remaining_words = words_window[best_match_idx:]
                             new_total_text = (
-                                self.current_session_text + " " + " ".join(remaining_words)
+                                self.current_session_text
+                                + " "
+                                + " ".join(remaining_words)
                             )
                         else:
-                            # No good overlap found, fallback to simple append if the window 
+                            # No good overlap found, fallback to simple append if the window
                             # seems entirely new, otherwise just keep current.
                             # For safety, we only append if the window is long.
                             if len(words_window) > 5:
-                                new_total_text = (self.current_session_text + " " + window_text).strip()
+                                new_total_text = (
+                                    self.current_session_text + " " + window_text
+                                ).strip()
                             else:
                                 new_total_text = self.current_session_text
 
@@ -272,7 +279,9 @@ class HarpoDaemon:
                         self.hud.update_text(new_total_text)
                         if not self.pause_typing:
                             self._release_modifiers()
-                            self.typer.type_diff(self.current_session_text, new_total_text)
+                            self.typer.type_diff(
+                                self.current_session_text, new_total_text
+                            )
                             self.current_session_text = new_total_text
 
         except asyncio.CancelledError:
