@@ -3,7 +3,6 @@ Integration test for interactive transcription mode.
 Simulates a real recording session by feeding chunks of audio.
 """
 
-import asyncio
 import os
 import time
 import wave
@@ -106,7 +105,9 @@ async def test_interactive_transcription_stitching():
                     remaining_words = window_text.split()[i:]
                     if remaining_words:
                         new_total_text = (
-                            daemon.current_session_text + " " + " ".join(remaining_words)
+                            daemon.current_session_text
+                            + " "
+                            + " ".join(remaining_words)
                         )
                     else:
                         new_total_text = daemon.current_session_text
@@ -131,7 +132,7 @@ async def test_interactive_transcription_stitching():
         )
 
         print(
-            f"[{current_sample/samplerate:4.1f}s] Latency: {api_latency:.2f}s | Delta: '{delta}'"
+            f"[{current_sample / samplerate:4.1f}s] Latency: {api_latency:.2f}s | Delta: '{delta}'"
         )
 
     total_duration = time.time() - start_time
@@ -148,7 +149,9 @@ async def test_interactive_transcription_stitching():
     print(f"Final Result: {final_text[:200]}...")
 
     # We expect a slightly lower threshold for interactive due to potential stitching artifacts
-    assert similarity >= 60, f"Interactive stitching similarity ({similarity}%) is too low."
+    assert similarity >= 60, (
+        f"Interactive stitching similarity ({similarity}%) is too low."
+    )
 
     # Analyze latency
     avg_latency = sum(r["latency"] for r in intermediate_results) / len(
