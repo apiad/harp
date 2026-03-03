@@ -4,15 +4,13 @@ Core logic for managing states and the background daemon loop.
 
 import asyncio
 import subprocess
-import time
-import wave
 from enum import Enum, auto
-from pathlib import Path
 
 import evdev
-import numpy as np
 
+from harp.api import OpenRouterClient
 from harp.audio import AudioStreamer
+from harp.config import HarpoConfig
 
 
 class DaemonState(Enum):
@@ -47,6 +45,13 @@ class HarpoDaemon:
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
 
+        # Load configuration and initialize API client
+        self.config = HarpoConfig()
+        self.api_client = OpenRouterClient(
+            api_key=self.config.api_key,
+            base_url=self.config.api_base_url,
+        )
+
     def _notify(self, title: str, message: str) -> None:
         """
         Sends a desktop notification using notify-send.
@@ -67,49 +72,35 @@ class HarpoDaemon:
             print("capturing")
             self._notify("Status", "capturing")
 
-    def _stop_recording(self) -> None:
+    async def _stop_recording(self) -> None:
         """
-        Transitions to IDLE, stops capture, and saves WAV.
+        Transitions to PROCESSING, stops capture, and transcribes.
         """
         if self.state == DaemonState.RECORDING:
-            self.state = DaemonState.IDLE
+            self.state = DaemonState.PROCESSING
             audio_data = self.audio_streamer.stop_recording()
             print("idle")
             self._notify("Status", "idle")
+
             if audio_data.size > 0:
-                self._save_wav(audio_data)
+                print("Transcribing...")
+                transcription = await self.api_client.transcribe(
+                    audio_data=audio_data,
+                    samplerate=self.audio_streamer.samplerate,
+                    model=self.config.api_model,
+                )
+                print(f"\nTranscription: {transcription}\n")
 
-    def _save_wav(self, audio_data: np.ndarray) -> None:
-        """
-        Saves the recorded audio to a WAV file in the home directory.
+            self.state = DaemonState.IDLE
 
-        Args:
-            audio_data: The captured float32 PCM data.
-        """
-        timestamp = int(time.time())
-        filename = Path.home() / f"harp_test_{timestamp}.wav"
-
-        # Convert float32 [-1.0, 1.0] to int16
-        audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
-
-        try:
-            with wave.open(str(filename), "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)  # 2 bytes for int16
-                wf.setframerate(self.audio_streamer.samplerate)
-                wf.writeframes(audio_int16.tobytes())
-            print(f"Saved recording to {filename}")
-        except Exception as e:
-            print(f"Error saving WAV file: {e}")
-
-    def _toggle_state(self) -> None:
+    async def _toggle_state(self) -> None:
         """
         Toggles the daemon state between IDLE and RECORDING.
         """
         if self.state == DaemonState.IDLE:
             self._start_recording()
-        else:
-            self._stop_recording()
+        elif self.state == DaemonState.RECORDING:
+            await self._stop_recording()
 
     async def _handle_events(self, device: evdev.InputDevice) -> None:
         """
@@ -153,13 +144,13 @@ class HarpoDaemon:
                             if key_event.keystate == evdev.KeyEvent.key_down:
                                 # Avoid repeat triggers if key is held
                                 if scancode == evdev.ecodes.KEY_SPACE:
-                                    self._toggle_state()
+                                    await self._toggle_state()
                         else:
                             self._start_recording()
                         should_suppress = True
                     else:
                         if not self.toggle and self.state == DaemonState.RECORDING:
-                            self._stop_recording()
+                            await self._stop_recording()
 
                     # If the key is in suppression list, we continue to suppress it
                     # until it is released.
@@ -185,7 +176,19 @@ class HarpoDaemon:
         """
         # 1. Device discovery
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-        keyboards = [d for d in devices if evdev.ecodes.EV_KEY in d.capabilities()]
+
+        # Narrowly define a keyboard as having standard letter keys (A-Z)
+        def is_real_keyboard(d: evdev.InputDevice) -> bool:
+            capabilities = d.capabilities()
+            if evdev.ecodes.EV_KEY not in capabilities:
+                return False
+            keys = capabilities[evdev.ecodes.EV_KEY]
+            # Check if it has KEY_A through KEY_Z
+            return all(
+                k in keys for k in range(evdev.ecodes.KEY_A, evdev.ecodes.KEY_Z + 1)
+            )
+
+        keyboards = [d for d in devices if is_real_keyboard(d)]
 
         if self.device_path:
             keyboards = [
@@ -195,9 +198,7 @@ class HarpoDaemon:
             ]
 
         if not keyboards:
-            print(
-                "No matching keyboard devices found. Check permissions or /dev/input/."
-            )
+            print("No real keyboard devices found. Check permissions or /dev/input/.")
             return
 
         # 2. Setup uinput
