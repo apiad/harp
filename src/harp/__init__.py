@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from harp!"
+__version__ = "0.2.2"
