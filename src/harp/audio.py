@@ -5,7 +5,7 @@ Audio streaming and capturing logic.
 from typing import Any
 
 import numpy as np
-import sounddevice as sd  # noqa: F401
+import sounddevice as sd
 
 
 class AudioStreamer:
@@ -22,15 +22,34 @@ class AudioStreamer:
         """
         self.samplerate: int = samplerate
         self.audio_buffer: list[np.ndarray] = []
+        self._stream: sd.InputStream | None = None
+
+    def _callback(
+        self, indata: np.ndarray, frames: int, time: Any, status: sd.CallbackFlags
+    ) -> None:
+        """
+        Sounddevice callback for processing incoming audio chunks.
+        """
+        if status:
+            print(f"Audio Callback Status: {status}")
+        self.audio_buffer.append(indata.copy())
 
     def start_recording(self) -> None:
         """
         Starts audio capture using sounddevice.
         """
-        # Example of use:
-        # with sd.InputStream(samplerate=self.samplerate):
-        #     pass
-        pass
+        self.audio_buffer = []
+        try:
+            self._stream = sd.InputStream(
+                samplerate=self.samplerate,
+                channels=1,
+                dtype="float32",
+                callback=self._callback,
+            )
+            self._stream.start()
+        except Exception as e:
+            print(f"Error starting audio stream: {e}")
+            self._stream = None
 
     def stop_recording(self) -> np.ndarray:
         """
@@ -39,13 +58,12 @@ class AudioStreamer:
         Returns:
             A numpy array containing the recorded PCM data.
         """
-        # Placeholder for stopping and returning buffer.
-        return np.array([], dtype=np.float32)
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
 
-    def _callback(
-        self, indata: np.ndarray, frames: int, time: Any, status: Any
-    ) -> None:
-        """
-        Sounddevice callback for processing incoming audio chunks.
-        """
-        pass
+        if not self.audio_buffer:
+            return np.array([], dtype=np.float32)
+
+        return np.concatenate(self.audio_buffer)

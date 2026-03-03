@@ -4,9 +4,15 @@ Core logic for managing states and the background daemon loop.
 
 import asyncio
 import subprocess
+import time
+import wave
 from enum import Enum, auto
+from pathlib import Path
 
 import evdev
+import numpy as np
+
+from harp.audio import AudioStreamer
 
 
 class DaemonState(Enum):
@@ -39,6 +45,7 @@ class HarpoDaemon:
         self._suppressed_keys: set[int] = set()
         self._uinput_device: evdev.UInput | None = None
         self._grabbed_devices: list[evdev.InputDevice] = []
+        self.audio_streamer = AudioStreamer()
 
     def _notify(self, title: str, message: str) -> None:
         """
@@ -50,18 +57,59 @@ class HarpoDaemon:
         """
         subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "1000"])
 
+    def _start_recording(self) -> None:
+        """
+        Transitions to RECORDING and starts audio capture.
+        """
+        if self.state == DaemonState.IDLE:
+            self.state = DaemonState.RECORDING
+            self.audio_streamer.start_recording()
+            print("capturing")
+            self._notify("Status", "capturing")
+
+    def _stop_recording(self) -> None:
+        """
+        Transitions to IDLE, stops capture, and saves WAV.
+        """
+        if self.state == DaemonState.RECORDING:
+            self.state = DaemonState.IDLE
+            audio_data = self.audio_streamer.stop_recording()
+            print("idle")
+            self._notify("Status", "idle")
+            if audio_data.size > 0:
+                self._save_wav(audio_data)
+
+    def _save_wav(self, audio_data: np.ndarray) -> None:
+        """
+        Saves the recorded audio to a WAV file in the home directory.
+
+        Args:
+            audio_data: The captured float32 PCM data.
+        """
+        timestamp = int(time.time())
+        filename = Path.home() / f"harp_test_{timestamp}.wav"
+
+        # Convert float32 [-1.0, 1.0] to int16
+        audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
+
+        try:
+            with wave.open(str(filename), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 2 bytes for int16
+                wf.setframerate(self.audio_streamer.samplerate)
+                wf.writeframes(audio_int16.tobytes())
+            print(f"Saved recording to {filename}")
+        except Exception as e:
+            print(f"Error saving WAV file: {e}")
+
     def _toggle_state(self) -> None:
         """
         Toggles the daemon state between IDLE and RECORDING.
         """
         if self.state == DaemonState.IDLE:
-            self.state = DaemonState.RECORDING
-            print("capturing")
-            self._notify("Status", "capturing")
+            self._start_recording()
         else:
-            self.state = DaemonState.IDLE
-            print("idle")
-            self._notify("Status", "idle")
+            self._stop_recording()
 
     async def _handle_events(self, device: evdev.InputDevice) -> None:
         """
@@ -107,16 +155,11 @@ class HarpoDaemon:
                                 if scancode == evdev.ecodes.KEY_SPACE:
                                     self._toggle_state()
                         else:
-                            if self.state == DaemonState.IDLE:
-                                self.state = DaemonState.RECORDING
-                                print("capturing")
-                                self._notify("Status", "capturing")
+                            self._start_recording()
                         should_suppress = True
                     else:
                         if not self.toggle and self.state == DaemonState.RECORDING:
-                            self.state = DaemonState.IDLE
-                            print("idle")
-                            self._notify("Status", "idle")
+                            self._stop_recording()
 
                     # If the key is in suppression list, we continue to suppress it
                     # until it is released.
