@@ -51,6 +51,17 @@ class AudioStreamer:
             print(f"Error starting audio stream: {e}")
             self._stream = None
 
+    def get_current_buffer(self) -> np.ndarray:
+        """
+        Returns the current audio buffer without stopping the stream.
+
+        Returns:
+            A numpy array containing the recorded PCM data so far.
+        """
+        if not self.audio_buffer:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(self.audio_buffer)
+
     def stop_recording(self) -> np.ndarray:
         """
         Stops audio capture and returns the buffered audio.
@@ -63,7 +74,6 @@ class AudioStreamer:
             self._stream.close()
             self._stream = None
 
-        if not self.audio_buffer:
-            return np.array([], dtype=np.float32)
-
-        return np.concatenate(self.audio_buffer)
+        data = self.get_current_buffer()
+        self.audio_buffer = []
+        return data
