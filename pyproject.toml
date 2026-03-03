@@ -1,6 +1,6 @@
 [project]
 name = "harp"
-version = "0.2.0"
+version = "0.2.1"
 description = "A background daemon for Wayland that transcribes audio and types results."
 readme = "README.md"
 authors = [
