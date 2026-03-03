@@ -131,7 +131,7 @@ class WaylandTyper:
         Returns:
             The filtered text suitable for typing.
         """
-        safe_punctuation = " ,.\n\t"
+        safe_punctuation = " ,.\n\t/()"
 
         if self.full_mode:
             return text
