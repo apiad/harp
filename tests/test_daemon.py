@@ -1,5 +1,5 @@
 """
-Tests for the Harpo daemon.
+Tests for the Harp daemon.
 """
 
 from harp.daemon import DaemonState, HarpoDaemon
