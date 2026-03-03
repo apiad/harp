@@ -19,14 +19,8 @@ Put done tasks into the Archive.
 ---
 
  ## Archive
-- [x] Refactor the `/research` command to follow a more extensible, executive-style reporting workflow with iterative updates and asset linking. (2026-03-02)
-- [x] Implement drafting (`/draft`) and editing (`/revise`) capabilities using specialized subagents. (2026-03-02) (See plan: plans/drafting-and-editing-capabilities.md)
-- [x] Implement a custom `/plan` command workflow and a `planner` sub-agent for repository analysis and plan generation in `plans/`. (2026-03-02)
-- [x] Implement a `/cron` command and synchronization hook with systemd user timers for scheduled tasks. (2026-03-02)
-- [x] Add the /issues command to manage project issues with GitHub CLI. (2026-02-28)
-- [x] Refactor the hook system: centralize shared logic into `.gemini/hooks/utils.py` and add PEP 257 docstrings. (2026-02-28)
-- [x] Rewrite the `README.md` to explain the opinionated framework and its key features. (2026-02-28)
-- [x] Refactor the `/research` command into a 3-phase workflow with researcher and reporter subagents. (2026-02-28)
-- [x] Consolidate the `/task/*` commands into a single `/task` command. (2026-02-28)
 
 > Done tasks go here, in the order they where finished, with a finished date.
+
+- [x] Implement initial MVP (Wayland/evdev) (See plan: `plans/implement-mvp.md`) (2026-03-03)
+- [x] Fix terminal pollution (^@) via uinput interceptor (See plan: `plans/fix-terminal-pollution.md`) (2026-03-03)
