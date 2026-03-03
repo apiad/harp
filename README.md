@@ -26,19 +26,23 @@
 ## 🚀 Installation
 
 ### Using `uv` (Recommended)
+
 The fastest way to run Harp without manual environment setup:
+
 ```bash
-uvx harp
+uvx harpio
 ```
 
 ### Using `pipx`
+
 For a persistent global installation:
+
 ```bash
 pipx install harpio
 ```
 
-
 ### From Source
+
 ```bash
 git clone https://github.com/apiad/harp.git
 cd harp
@@ -49,32 +53,36 @@ uv run harp start
 ## 🛠 Setup & Requirements
 
 1.  **Permissions**: Harp requires access to `/dev/input` and `/dev/uinput`.
-    ```bash
-    sudo usermod -aG input $USER
-    # You may also need to set udev rules for uinput or run:
-    sudo chmod 666 /dev/uinput
-    ```
+
+```bash
+sudo usermod -aG input $USER
+# You may also need to set udev rules for uinput or run:
+sudo chmod 666 /dev/uinput
+```
 2.  **API Key**: Create a `.env` file in your home or project directory:
-    ```env
-    HARP_API_KEY=your_openrouter_api_key
-    ```
+
+```env
+HARP_API_KEY=your_openrouter_api_key
+```
 3.  **Dependencies**: Ensure `libportaudio2` is installed on your system.
-    ```bash
-    sudo apt install libportaudio2
-    ```
+
+```bash
+sudo apt install libportaudio2
+```
 
 ## ⌨️ Usage
 
 Start the daemon:
+
 ```bash
 # Basic usage
-harp start
+harp
 
 # With toggle mode and full character typing
-harp start --toggle --full
+harp --toggle --full
 
 # Enable experimental interactive mode
-harp start --interactive --interval 1.5
+harp --interactive --interval 1.5
 ```
 
 ## 🤝 Contributing
@@ -82,13 +90,16 @@ harp start --interactive --interval 1.5
 Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
 ### 🤖 Gemini CLI
+
 This repository is enhanced with custom **Gemini CLI** commands to automate common tasks and workflows. If you are using Gemini, you can run:
+
 ```bash
 gemini /onboard
 ```
 to get started, explore the project architecture, and understand the automated workflows (planning, debugging, releases, etc.).
 
 ### Standard Process
+
 1.  **Report Bugs**: Open an [issue](https://github.com/apiad/harp/issues) if you find something broken.
 2.  **Suggest Features**: Have an idea for a new mode? Let us know!
 3.  **Submit Pull Requests**:
@@ -99,4 +110,5 @@ to get started, explore the project architecture, and understand the automated w
     - Open a Pull Request.
 
 ## 📄 License
+
 Distributed under the MIT License. See `LICENSE` for more information.
