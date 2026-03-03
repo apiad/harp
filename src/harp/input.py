@@ -21,8 +21,17 @@ class WaylandTyper:
 
         # Create virtual device with all keys in our map
         keys = {k[0] for k in self._key_map.values()}
-        # Ensure LEFTSHIFT is included for shift-based chars
+        # Ensure additional keys for Unicode entry (Ctrl+Shift+U)
         keys.add(uinput.KEY_LEFTSHIFT)
+        keys.add(uinput.KEY_LEFTCTRL)
+        keys.add(uinput.KEY_U)
+        keys.add(uinput.KEY_ENTER)
+
+        # Keys for hex digits (0-9, a-f)
+        for i in range(10):
+            keys.add(getattr(uinput, f"KEY_{i}"))
+        for char in "abcdef":
+            keys.add(getattr(uinput, f"KEY_{char.upper()}"))
 
         try:
             self.device = uinput.Device(list(keys), name="Harp Virtual Keyboard")
@@ -78,6 +87,39 @@ class WaylandTyper:
 
         return mapping
 
+    def _type_unicode(self, char: str) -> None:
+        """
+        Types a character using the Linux Unicode sequence (Ctrl+Shift+U + hex + Enter).
+        """
+        # Ensure 4-digit hex code for better compatibility
+        hex_code = f"{ord(char):04x}"
+
+        # Press Ctrl+Shift+U
+        self.device.emit(uinput.KEY_LEFTCTRL, 1)
+        self.device.emit(uinput.KEY_LEFTSHIFT, 1)
+        self.device.emit(uinput.KEY_U, 1)
+        self.device.emit(uinput.KEY_U, 0)
+        # Release Shift/Ctrl before hex entry (Standard behavior for many apps)
+        self.device.emit(uinput.KEY_LEFTSHIFT, 0)
+        self.device.emit(uinput.KEY_LEFTCTRL, 0)
+
+        # Small delay to let the app open the unicode entry buffer
+        time.sleep(0.01)
+
+        # Type hex digits
+        for digit in hex_code:
+            key_code = getattr(uinput, f"KEY_{digit.upper()}")
+            self.device.emit(key_code, 1)
+            self.device.emit(key_code, 0)
+            time.sleep(0.001)
+
+        # Press Enter to confirm the sequence
+        self.device.emit(uinput.KEY_ENTER, 1)
+        self.device.emit(uinput.KEY_ENTER, 0)
+
+        # Small delay after confirming unicode
+        time.sleep(0.01)
+
     def type_text(self, text: str) -> None:
         """
         Emulates keystrokes for the provided text.
@@ -102,8 +144,11 @@ class WaylandTyper:
                 if needs_shift:
                     self.device.emit(uinput.KEY_LEFTSHIFT, 0)
             else:
-                print(f"Warning: Character '{char}' not in key map. Skipping.")
+                # Try Unicode entry for non-ASCII/unmapped characters
+                try:
+                    self._type_unicode(char)
+                except Exception:
+                    print(f"Warning: Character '{char}' could not be typed. Skipping.")
 
-            # Small sleep to ensure the OS/App handles it correctly
-            # although "Immediate" was requested, completely zero delay can sometimes drop chars
+            # Small delay between characters
             time.sleep(0.001)
