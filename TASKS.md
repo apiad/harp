@@ -16,6 +16,24 @@ Put done tasks into the Archive.
 
 ## Active Tasks
 
+### UX & Customization
+- [ ] Configure custom hotkeys via .env or YAML (#5)
+- [ ] Implement Wayland status overlay (layer-shell) (#6)
+- [ ] Support for multiple international keyboard layouts (ISO, etc.) (#13)
+
+### AI Features
+- [ ] Add support for local Whisper models (faster-whisper/whisper.cpp) (#7)
+- [ ] Implement 'Prompt Presets' for different command variants (#8)
+- [ ] Add post-processing hooks for transcribed text (#9)
+
+### Infrastructure
+- [ ] Implement Voice Activity Detection (VAD) for auto-stop (#10)
+- [ ] Integrate XDG Global Shortcuts portal (D-Bus) (#11)
+- [ ] Fix Interactive Mode synchronization and typing bugs (#4)
+
+### Portability
+- [ ] Research and scaffold macOS support (CoreAudio/Quartz) (#12)
+
 ---
 
  ## Archive
