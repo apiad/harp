@@ -56,32 +56,32 @@ async def test_interactive_transcription_sliding_window():
     warmup_seconds = 15.0
     window_seconds = 10.0
     loop_interval = 5.0
-    
+
     total_samples = len(full_audio)
     current_sample = 0
-    
+
     start_time = time.time()
 
     print("\n[DEBUG] Starting sliding-window interactive simulation...")
 
     while current_sample < total_samples:
         iter_start = time.time()
-        
+
         # Initial 15s buffer, then 5s steps
         if current_sample == 0:
             current_sample = int(warmup_seconds * samplerate)
         else:
             current_sample += int(loop_interval * samplerate)
-            
+
         current_duration = current_sample / samplerate
-        
+
         if current_sample > total_samples:
             current_sample = total_samples
 
         # Get rolling window (last 10 seconds)
         window_start = max(0, current_sample - int(window_seconds * samplerate))
         audio_data = full_audio[window_start:current_sample].reshape(-1, 1)
-        
+
         # 4. Prompt with FULL Context (Matching daemon.py logic)
         instruction = (
             "You are a real-time transcription assistant. "
@@ -107,11 +107,13 @@ async def test_interactive_transcription_sliding_window():
 
         api_latency = time.time() - iter_start
 
-        # 5. Full Update (LCP logic is handled by type_diff in the real daemon, 
+        # 5. Full Update (LCP logic is handled by type_diff in the real daemon,
         # but here we just update the state)
         daemon.current_session_text = updated_full_text
-        
-        print(f"[{current_duration:4.1f}s] Latency: {api_latency:.2f}s | Current Len: {len(updated_full_text)}")
+
+        print(
+            f"[{current_duration:4.1f}s] Latency: {api_latency:.2f}s | Current Len: {len(updated_full_text)}"
+        )
 
     total_duration = time.time() - start_time
     final_text = daemon.current_session_text

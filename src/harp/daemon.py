@@ -8,7 +8,6 @@ import time
 from enum import Enum, auto
 
 import evdev
-from fuzzywuzzy import fuzz
 from pynput import keyboard
 from rich.console import Console
 from rich.status import Status
@@ -218,7 +217,9 @@ class HarpoDaemon:
                             response_model=BatchResponse,
                         )
                         updated_full_text = self.typer.filter_text(response.full_text)
-                        self.console.print(f"[dim]Interactive Window Update: '{updated_full_text}'[/]")
+                        self.console.print(
+                            f"[dim]Interactive Window Update: '{updated_full_text}'[/]"
+                        )
                     except Exception as e:
                         self.console.print(f"[yellow]API error: {e}[/]")
                         continue
@@ -233,7 +234,9 @@ class HarpoDaemon:
                         if not self.pause_typing:
                             self._release_modifiers()
                             # Synchronize physical keyboard with the model's new full state
-                            self.typer.type_diff(self.current_session_text, updated_full_text)
+                            self.typer.type_diff(
+                                self.current_session_text, updated_full_text
+                            )
                             self.current_session_text = updated_full_text
 
         except asyncio.CancelledError:
