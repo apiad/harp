@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-03-03
+
+### Added
+- Expanded test suite with comprehensive unit and integration tests, increasing overall coverage to **75%**.
+- New test modules for API, audio, input, CLI entry point, and asynchronous daemon logic.
+- Automated coverage reporting using `pytest-cov`.
+
+### Changed
+- Refactored `HarpoConfig` to use the modern Pydantic `ConfigDict` pattern.
+- Extracted keyboard detection logic into a testable static method in `HarpoDaemon`.
+- Simplified package initialization in `src/harp/__init__.py`.
+
 ## [0.2.2] - 2026-03-03
 
 ### Changed
