@@ -7,6 +7,9 @@ import subprocess
 from enum import Enum, auto
 
 import evdev
+from rich.console import Console
+from rich.status import Status
+from rich.panel import Panel
 
 from harp.api import OpenRouterClient
 from harp.audio import AudioStreamer
@@ -67,6 +70,10 @@ class HarpoDaemon:
         self._interactive_task: asyncio.Task | None = None
         self._interactive_lock = asyncio.Lock()
 
+        # UI components
+        self.console = Console()
+        self._status: Status | None = None
+
         # Load configuration and initialize API client
         self.config = HarpoConfig()
         self.api_client = OpenRouterClient(
@@ -75,12 +82,14 @@ class HarpoDaemon:
         )
 
         if self.interactive:
-            print("\n" + "!" * 60)
-            print(
-                "!!! WARNING: INTERACTIVE MODE IS EXPERIMENTAL AND CURRENTLY BROKEN !!!"
+            self.console.print(
+                Panel(
+                    "[bold red]INTERACTIVE MODE IS EXPERIMENTAL AND CURRENTLY BROKEN[/]\n"
+                    "[red]It may produce weird typing behavior or out-of-sync text.[/]",
+                    title="[bold yellow]WARNING[/]",
+                    border_style="red",
+                )
             )
-            print("!!! It may produce weird typing behavior or out-of-sync text.   !!!")
-            print("!" * 60 + "\n")
 
     def _notify(self, title: str, message: str) -> None:
         """
@@ -123,7 +132,7 @@ class HarpoDaemon:
             self.current_session_text = ""
             self.audio_streamer.start_recording()
             mode_str = "command" if self._is_command_mode else "capturing"
-            print(mode_str)
+            self.console.print(f"[bold green]{mode_str}...[/]")
             self._notify("Status", mode_str)
 
             if self.interactive:
@@ -187,7 +196,7 @@ class HarpoDaemon:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            print(f"Error in interactive loop: {e}")
+            self.console.print(f"[bold red]Error in interactive loop: {e}[/]")
 
     async def _stop_recording(self) -> None:
         """
@@ -206,56 +215,62 @@ class HarpoDaemon:
                 self._interactive_task = None
 
             audio_data = self.audio_streamer.stop_recording()
-            print("idle")
+            self.console.print("[bold blue]idle[/]")
             self._notify("Status", "idle")
 
             if audio_data.size > 0:
-                try:
-                    print("Transcribing...")
-                    instruction = (
-                        "Listen to the following audio and reply whatever it says."
-                        if self._is_command_mode
-                        else "Transcribe this audio exactly."
-                    )
-                    transcription = await self.api_client.transcribe(
-                        audio_data=audio_data,
-                        samplerate=self.audio_streamer.samplerate,
-                        model=self.config.api_model,
-                        instruction=instruction,
-                    )
+                with self.console.status("[bold blue]Transcribing...[/]") as status:
+                    try:
+                        instruction = (
+                            "Listen to the following audio and reply whatever it says."
+                            if self._is_command_mode
+                            else "Transcribe this audio exactly."
+                        )
+                        transcription = await self.api_client.transcribe(
+                            audio_data=audio_data,
+                            samplerate=self.audio_streamer.samplerate,
+                            model=self.config.api_model,
+                            instruction=instruction,
+                        )
 
-                    if transcription.startswith("Error:"):
-                        raise Exception(transcription)
+                        if transcription.startswith("Error:"):
+                            raise Exception(transcription)
 
-                    print(f"\nTranscription: {transcription}\n")
+                        self.console.print(
+                            Panel(
+                                f"[italic green]{transcription}[/]",
+                                title="[bold cyan]Transcription[/]",
+                                border_style="cyan",
+                            )
+                        )
 
-                    # Wait a bit for the user to release physical keys
-                    await asyncio.sleep(0.5)
-                    self._release_modifiers()
+                        # Wait a bit for the user to release physical keys
+                        await asyncio.sleep(0.5)
+                        self._release_modifiers()
 
-                    # Final reconciliation with interactive text
-                    filtered_final = self.typer.filter_text(transcription)
+                        # Final reconciliation with interactive text
+                        filtered_final = self.typer.filter_text(transcription)
 
-                    if filtered_final == self.current_session_text:
-                        # Nothing more to type
-                        pass
-                    elif filtered_final.startswith(self.current_session_text):
-                        # Just type the missing suffix
-                        suffix = filtered_final[len(self.current_session_text) :]
-                        if suffix:
-                            print("Typing final suffix...")
-                            self.typer.type_text(suffix)
-                    else:
-                        # Full replacement to ensure correctness
-                        print("Replacing session text with final transcription...")
-                        if self.current_session_text:
-                            self.typer.backspace(len(self.current_session_text))
-                        self.typer.type_text(filtered_final)
+                        if filtered_final == self.current_session_text:
+                            # Nothing more to type
+                            pass
+                        elif filtered_final.startswith(self.current_session_text):
+                            # Just type the missing suffix
+                            suffix = filtered_final[len(self.current_session_text) :]
+                            if suffix:
+                                status.update("[bold cyan]Typing final suffix...[/]")
+                                self.typer.type_text(suffix)
+                        else:
+                            # Full replacement to ensure correctness
+                            status.update("[bold cyan]Updating transcription...[/]")
+                            if self.current_session_text:
+                                self.typer.backspace(len(self.current_session_text))
+                            self.typer.type_text(filtered_final)
 
-                except Exception as e:
-                    error_msg = f"Transcription or typing failed: {e}"
-                    print(error_msg)
-                    self._notify("Error", error_msg)
+                    except Exception as e:
+                        error_msg = f"Transcription or typing failed: {e}"
+                        self.console.print(f"[bold red]{error_msg}[/]")
+                        self._notify("Error", error_msg)
 
             self.current_session_text = ""
             self.state = DaemonState.IDLE
@@ -365,6 +380,10 @@ class HarpoDaemon:
             if "Harp Virtual" in d.name:
                 return False
 
+            # Require "keyboard" in the name (case-insensitive)
+            if "keyboard" not in d.name.lower():
+                return False
+
             capabilities = d.capabilities()
             if evdev.ecodes.EV_KEY not in capabilities:
                 return False
@@ -384,7 +403,9 @@ class HarpoDaemon:
             ]
 
         if not keyboards:
-            print("No real keyboard devices found. Check permissions or /dev/input/.")
+            self.console.print(
+                "[bold red]No real keyboard devices found. Check permissions or /dev/input/.[/]"
+            )
             return
 
         # 2. Setup uinput
@@ -399,20 +420,20 @@ class HarpoDaemon:
                 name="Harp Virtual passthrough",
             )
         except (OSError, PermissionError):
-            print(
-                "Error creating uinput device. Run: sudo chmod 666 /dev/uinput or sudo modprobe uinput."
+            self.console.print(
+                "[bold red]Error creating uinput device.[/] Run: [italic]sudo chmod 666 /dev/uinput[/] or [italic]sudo modprobe uinput[/]."
             )
             return
 
         # 3. Grab keyboards
-        print(f"Listening on: {[k.name for k in keyboards]}")
+        self.console.print(f"[bold cyan]Listening on:[/] {[k.name for k in keyboards]}")
         for k in keyboards:
             try:
                 k.grab()
                 self._grabbed_devices.append(k)
             except PermissionError:
-                print(
-                    f"Permission denied grabbing '{k.name}'. Run: sudo usermod -aG input $USER."
+                self.console.print(
+                    f"[bold red]Permission denied grabbing '{k.name}'.[/] Run: [italic]sudo usermod -aG input $USER[/]."
                 )
                 return
 
@@ -461,11 +482,11 @@ class HarpoDaemon:
         try:
             loop.run_until_complete(self._main_loop())
         except PermissionError:
-            print(
-                "Permission denied accessing /dev/input/. Run with sudo or add user to 'input' group."
+            self.console.print(
+                "[bold red]Permission denied accessing /dev/input/.[/] Run with sudo or add user to 'input' group."
             )
         except KeyboardInterrupt:
-            print("\nDaemon stopped. Releasing devices...")
+            self.console.print("\n[bold yellow]Daemon stopped. Releasing devices...[/]")
             # Cancel all running tasks
             for task in asyncio.all_tasks(loop):
                 task.cancel()

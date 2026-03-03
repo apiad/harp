@@ -154,6 +154,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "python-uinput" },
+    { name = "rich" },
     { name = "sounddevice" },
     { name = "typer" },
 ]
@@ -173,6 +174,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-uinput", specifier = ">=1.0.1" },
+    { name = "rich", specifier = ">=14.3.3" },
     { name = "sounddevice", specifier = ">=0.5.5" },
     { name = "typer", specifier = ">=0.24.1" },
 ]
