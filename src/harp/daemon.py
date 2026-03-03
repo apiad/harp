@@ -367,6 +367,26 @@ class HarpoDaemon:
             # This is expected during shutdown
             pass
 
+    @staticmethod
+    def _is_real_keyboard(device: evdev.InputDevice) -> bool:
+        """
+        Narrowly defines a keyboard as having standard letter keys (A-Z)
+        and excluding our own virtual devices.
+        """
+        if "Harp Virtual" in device.name:
+            return False
+
+        # Require "keyboard" in the name (case-insensitive)
+        if "keyboard" not in device.name.lower():
+            return False
+
+        capabilities = device.capabilities()
+        if evdev.ecodes.EV_KEY not in capabilities:
+            return False
+        keys = capabilities[evdev.ecodes.EV_KEY]
+        # Check if it has KEY_A through KEY_Z
+        return all(k in keys for k in range(evdev.ecodes.KEY_A, evdev.ecodes.KEY_Z + 1))
+
     async def _main_loop(self) -> None:
         """
         The asynchronous main loop of the daemon.
@@ -374,26 +394,7 @@ class HarpoDaemon:
         # 1. Device discovery
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
 
-        # Narrowly define a keyboard as having standard letter keys (A-Z)
-        # And EXCLUDE our own virtual keyboard to avoid feedback loops
-        def is_real_keyboard(d: evdev.InputDevice) -> bool:
-            if "Harp Virtual" in d.name:
-                return False
-
-            # Require "keyboard" in the name (case-insensitive)
-            if "keyboard" not in d.name.lower():
-                return False
-
-            capabilities = d.capabilities()
-            if evdev.ecodes.EV_KEY not in capabilities:
-                return False
-            keys = capabilities[evdev.ecodes.EV_KEY]
-            # Check if it has KEY_A through KEY_Z
-            return all(
-                k in keys for k in range(evdev.ecodes.KEY_A, evdev.ecodes.KEY_Z + 1)
-            )
-
-        keyboards = [d for d in devices if is_real_keyboard(d)]
+        keyboards = [d for d in devices if self._is_real_keyboard(d)]
 
         if self.device_path:
             keyboards = [
