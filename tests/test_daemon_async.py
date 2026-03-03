@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from harp.daemon import DaemonState, HarpoDaemon
+from harp.api import InteractiveResponse, BatchResponse
 
 
 @pytest.fixture
@@ -22,6 +23,7 @@ def async_daemon() -> HarpoDaemon:
         patch("harp.daemon.WaylandTyper"),
         patch("harp.daemon.OpenRouterClient"),
         patch("harp.daemon.HarpoConfig"),
+        patch("harp.daemon.HarpoHUD"),
     ):
         daemon = HarpoDaemon()
         # Ensure UI console is mocked to avoid output clutter
@@ -96,73 +98,90 @@ async def test_handle_events_ctrl_space(async_daemon: HarpoDaemon) -> None:
 @pytest.mark.asyncio
 async def test_interactive_loop_incremental(async_daemon: HarpoDaemon) -> None:
     """
-    Verifies suffix typing in interactive loop.
+    Verifies suffix typing in interactive loop using Local Agreement.
     """
     async_daemon.state = DaemonState.RECORDING
     async_daemon.interactive = True
-    async_daemon.interval = 0.01  # fast
+    async_daemon.interval = 0.001  # very fast
 
-    async_daemon.audio_streamer.get_current_buffer.return_value = np.array(
-        [0.1], dtype=np.float32
+    # Mock rolling window to return some data
+    async_daemon.audio_streamer.get_rolling_window.return_value = np.array(
+        [[0.1]], dtype=np.float32
     )
-    async_daemon.api_client.transcribe = AsyncMock(return_value="Hello world")
+
+    # Return structured response: "world"
+    # Local agreement needs TWO identical responses to commit.
+    async_daemon.api_client.transcribe = AsyncMock(
+        return_value=InteractiveResponse(delta_text="world", is_final=False)
+    )
     async_daemon.typer.filter_text.side_effect = lambda x: x
 
     async_daemon.current_session_text = "Hello"
 
-    # We want to run one iteration and then stop
-    # We can mock asyncio.sleep to break the while loop or just cancel the task
-
     task = asyncio.create_task(async_daemon._interactive_loop())
-    await asyncio.sleep(0.05)
+
+    # Wait until transcribe is called TWICE to trigger Local Agreement
+    while async_daemon.api_client.transcribe.call_count < 2:
+        await asyncio.sleep(0.001)
+
     async_daemon.state = DaemonState.IDLE  # stop loop
     await task
 
-    # Should have typed " world" (the suffix)
-    async_daemon.typer.type_text.assert_called_with(" world")
+    # Should have called type_diff with "Hello" -> "Hello world"
+    async_daemon.typer.type_diff.assert_any_call("Hello", "Hello world")
     assert async_daemon.current_session_text == "Hello world"
 
 
 @pytest.mark.asyncio
 async def test_interactive_loop_replacement(async_daemon: HarpoDaemon) -> None:
     """
-    Verifies full replacement when prefix doesn't match.
+    Verifies full replacement when prefix doesn't match via Local Agreement.
     """
     async_daemon.state = DaemonState.RECORDING
     async_daemon.interactive = True
-    async_daemon.interval = 0.01
+    async_daemon.interval = 0.001
 
-    async_daemon.audio_streamer.get_current_buffer.return_value = np.array(
-        [0.1], dtype=np.float32
+    async_daemon.audio_streamer.get_rolling_window.return_value = np.array(
+        [[0.1]], dtype=np.float32
     )
-    async_daemon.api_client.transcribe = AsyncMock(return_value="Different text")
+    async_daemon.api_client.transcribe = AsyncMock(
+        return_value=InteractiveResponse(delta_text="New text", is_final=False)
+    )
     async_daemon.typer.filter_text.side_effect = lambda x: x
 
     async_daemon.current_session_text = "Original"
 
     task = asyncio.create_task(async_daemon._interactive_loop())
-    await asyncio.sleep(0.05)
+
+    while async_daemon.api_client.transcribe.call_count < 2:
+        await asyncio.sleep(0.001)
+
     async_daemon.state = DaemonState.IDLE
     await task
 
-    # Should have backspaced original and typed new
-    async_daemon.typer.backspace.assert_called_with(len("Original"))
-    async_daemon.typer.type_text.assert_called_with("Different text")
+    # interim_text = "Original" + " " + "New text" = "Original New text"
+    # Actually current implementation: (self.current_session_text + " " + new_delta).strip()
+    expected_interim = "Original New text"
+    async_daemon.typer.type_diff.assert_any_call("Original", expected_interim)
+    assert async_daemon.current_session_text == expected_interim
 
 
 @pytest.mark.asyncio
 async def test_stop_recording_success(async_daemon: HarpoDaemon) -> None:
     """
-    Verifies full transcription process on stop.
+    Verifies full transcription process on stop using type_diff.
     """
     async_daemon.state = DaemonState.RECORDING
     async_daemon.audio_streamer.stop_recording.return_value = np.array(
-        [0.1], dtype=np.float32
+        [[0.1]], dtype=np.float32
     )
-    async_daemon.api_client.transcribe = AsyncMock(return_value="Final result")
+    async_daemon.api_client.transcribe = AsyncMock(
+        return_value=BatchResponse(full_text="Final result")
+    )
     async_daemon.typer.filter_text.side_effect = lambda x: x
+    async_daemon.current_session_text = "Partial"
 
     await async_daemon._stop_recording()
 
     assert async_daemon.state == DaemonState.IDLE
-    async_daemon.typer.type_text.assert_called_with("Final result")
+    async_daemon.typer.type_diff.assert_called_with("Partial", "Final result")

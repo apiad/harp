@@ -4,16 +4,19 @@ Core logic for managing states and the background daemon loop.
 
 import asyncio
 import subprocess
+import time
 from enum import Enum, auto
 
 import evdev
+from pynput import keyboard
 from rich.console import Console
 from rich.status import Status
 from rich.panel import Panel
 
-from harp.api import OpenRouterClient
+from harp.api import BatchResponse, InteractiveResponse, OpenRouterClient
 from harp.audio import AudioStreamer
 from harp.config import HarpoConfig
+from harp.hud import HarpoHUD
 from harp.input import WaylandTyper
 
 
@@ -64,11 +67,16 @@ class HarpoDaemon:
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
         self.typer = WaylandTyper(full_mode=full_mode)
+        self.hud = HarpoHUD()
 
         # State for interactive mode
         self.current_session_text: str = ""
         self._interactive_task: asyncio.Task | None = None
         self._interactive_lock = asyncio.Lock()
+
+        # State for safety listener
+        self._last_user_typing_time: float = 0.0
+        self._keyboard_listener: keyboard.Listener | None = None
 
         # UI components
         self.console = Console()
@@ -90,6 +98,19 @@ class HarpoDaemon:
                     border_style="red",
                 )
             )
+
+    @property
+    def pause_typing(self) -> bool:
+        """
+        True if the user has typed recently (within 2 seconds).
+        """
+        return time.time() - self._last_user_typing_time < 2.0
+
+    def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
+        """
+        Callback for pynput keyboard listener.
+        """
+        self._last_user_typing_time = time.time()
 
     def _notify(self, title: str, message: str) -> None:
         """
@@ -142,6 +163,12 @@ class HarpoDaemon:
         """
         Periodically samples audio and types incremental transcription.
         """
+        self.hud.show()
+        self.hud.update_text("...")
+
+        # Local Agreement state: we only commit if we see the same delta twice
+        pending_delta = ""
+
         try:
             while self.state == DaemonState.RECORDING:
                 # Wait FIRST to allow some audio to accumulate
@@ -151,52 +178,60 @@ class HarpoDaemon:
                     if self.state != DaemonState.RECORDING:
                         break
 
-                    audio_data = self.audio_streamer.get_current_buffer()
+                    # Use rolling window of 5 seconds
+                    audio_data = self.audio_streamer.get_rolling_window(seconds=5.0)
                     if audio_data.size == 0:
                         continue
 
                     instruction = (
-                        "Listen to the following audio and reply whatever it says."
-                        if self._is_command_mode
-                        else "Transcribe this audio exactly."
+                        f"Listen to the following audio and reply with the next words to type. "
+                        f"Context (already typed): '{self.current_session_text}'"
                     )
 
                     # Fetch transcription
-                    raw_text = await self.api_client.transcribe(
-                        audio_data=audio_data,
-                        samplerate=self.audio_streamer.samplerate,
-                        model=self.config.api_model,
-                        instruction=instruction,
-                    )
-
-                    if (
-                        raw_text.startswith("Error:")
-                        or self.state != DaemonState.RECORDING
-                    ):
+                    try:
+                        response = await self.api_client.transcribe(
+                            audio_data=audio_data,
+                            samplerate=self.audio_streamer.samplerate,
+                            model=self.config.api_model,
+                            instruction=instruction,
+                            response_model=InteractiveResponse,
+                        )
+                    except Exception as e:
+                        self.console.print(
+                            f"[yellow]API error in interactive loop: {e}[/]"
+                        )
                         continue
 
-                    new_text = self.typer.filter_text(raw_text)
+                    new_delta = self.typer.filter_text(response.delta_text)
 
-                    if new_text == self.current_session_text:
-                        pass
-                    elif new_text.startswith(self.current_session_text):
-                        # Type only the suffix
-                        suffix = new_text[len(self.current_session_text) :]
-                        if suffix:
+                    # UI Update: HUD always shows the most recent "best guess"
+                    interim_text = self.current_session_text
+                    if new_delta:
+                        interim_text = (interim_text + " " + new_delta).strip()
+
+                    if interim_text:
+                        self.hud.update_text(interim_text)
+
+                    # Local Agreement: Only commit if we get the same delta twice
+                    if new_delta and new_delta == pending_delta:
+                        if not self.pause_typing:
                             self._release_modifiers()
-                            self.typer.type_text(suffix)
-                            self.current_session_text = new_text
+                            # Sync the active application with the new stable text
+                            self.typer.type_diff(
+                                self.current_session_text, interim_text
+                            )
+                            self.current_session_text = interim_text
+                        pending_delta = ""  # Reset after commitment
                     else:
-                        # Whisper refined the beginning, replace everything
-                        self._release_modifiers()
-                        self.typer.backspace(len(self.current_session_text))
-                        self.typer.type_text(new_text)
-                        self.current_session_text = new_text
+                        pending_delta = new_delta
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
             self.console.print(f"[bold red]Error in interactive loop: {e}[/]")
+        finally:
+            self.hud.hide()
 
     async def _stop_recording(self) -> None:
         """
@@ -226,15 +261,15 @@ class HarpoDaemon:
                             if self._is_command_mode
                             else "Transcribe this audio exactly."
                         )
-                        transcription = await self.api_client.transcribe(
+                        response = await self.api_client.transcribe(
                             audio_data=audio_data,
                             samplerate=self.audio_streamer.samplerate,
                             model=self.config.api_model,
                             instruction=instruction,
+                            response_model=BatchResponse,
                         )
 
-                        if transcription.startswith("Error:"):
-                            raise Exception(transcription)
+                        transcription = response.full_text
 
                         self.console.print(
                             Panel(
@@ -248,24 +283,14 @@ class HarpoDaemon:
                         await asyncio.sleep(0.5)
                         self._release_modifiers()
 
-                        # Final reconciliation with interactive text
+                        # Final reconciliation with interactive text using type_diff
                         filtered_final = self.typer.filter_text(transcription)
 
-                        if filtered_final == self.current_session_text:
-                            # Nothing more to type
-                            pass
-                        elif filtered_final.startswith(self.current_session_text):
-                            # Just type the missing suffix
-                            suffix = filtered_final[len(self.current_session_text) :]
-                            if suffix:
-                                status.update("[bold cyan]Typing final suffix...[/]")
-                                self.typer.type_text(suffix)
-                        else:
-                            # Full replacement to ensure correctness
-                            status.update("[bold cyan]Updating transcription...[/]")
-                            if self.current_session_text:
-                                self.typer.backspace(len(self.current_session_text))
-                            self.typer.type_text(filtered_final)
+                        if filtered_final != self.current_session_text:
+                            status.update("[bold cyan]Finalizing transcription...[/]")
+                            self.typer.type_diff(
+                                self.current_session_text, filtered_final
+                            )
 
                     except Exception as e:
                         error_msg = f"Transcription or typing failed: {e}"
@@ -450,6 +475,19 @@ class HarpoDaemon:
         """
         Ensures all devices are ungrabbed and uinput is closed.
         """
+        if self.hud:
+            try:
+                self.hud.stop()
+            except Exception:
+                pass
+
+        if self._keyboard_listener:
+            try:
+                self._keyboard_listener.stop()
+            except Exception:
+                pass
+            self._keyboard_listener = None
+
         for k in self._grabbed_devices:
             try:
                 k.ungrab()
@@ -468,6 +506,9 @@ class HarpoDaemon:
         """
         Entry point to start the asynchronous event loop.
         """
+        self._keyboard_listener = keyboard.Listener(on_press=self._on_press)
+        self._keyboard_listener.start()
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 

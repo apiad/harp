@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from harp.api import OpenRouterClient
+from harp.api import OpenRouterClient, BatchResponse
 
 
 @pytest.fixture
@@ -29,12 +29,13 @@ def test_api_initialization(api_client: OpenRouterClient) -> None:
 @pytest.mark.asyncio
 async def test_transcribe_empty_data(api_client: OpenRouterClient) -> None:
     """
-    Checks if transcribing empty data returns an empty string.
+    Checks if transcribing empty data returns a default BatchResponse.
     """
     result = await api_client.transcribe(
         np.array([], dtype=np.float32), 16000, "test-model"
     )
-    assert result == ""
+    assert isinstance(result, BatchResponse)
+    assert result.full_text == ""
 
 
 @pytest.mark.asyncio
@@ -48,13 +49,15 @@ async def test_transcribe_success(
     """
     # Setup mocks
     mock_b64encode.return_value = b"dGVzdF9hdWRpbw=="
-    api_client.client.chat = MagicMock()
-    api_client.client.chat.completions.create = AsyncMock()
+    api_client.client.beta = MagicMock()
+    api_client.client.beta.chat = MagicMock()
+    api_client.client.beta.chat.completions = MagicMock()
+    api_client.client.beta.chat.completions.parse = AsyncMock()
 
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = "Success"
-    api_client.client.chat.completions.create.return_value = mock_response
+    mock_response.choices[0].message.parsed = BatchResponse(full_text="Success")
+    api_client.client.beta.chat.completions.parse.return_value = mock_response
 
     audio_data = np.array([0.1, -0.1], dtype=np.float32)
 
@@ -62,11 +65,11 @@ async def test_transcribe_success(
         audio_data, 16000, "test-model", "test-instruction"
     )
 
-    assert result == "Success"
-    api_client.client.chat.completions.create.assert_called_once()
+    assert result.full_text == "Success"
+    api_client.client.beta.chat.completions.parse.assert_called_once()
 
     # Check if the instruction and base64 audio were passed correctly
-    call_args = api_client.client.chat.completions.create.call_args
+    call_args = api_client.client.beta.chat.completions.parse.call_args
     messages = call_args.kwargs["messages"]
     assert messages[0]["content"][0]["text"] == "test-instruction"
     assert messages[0]["content"][1]["input_audio"]["data"] == "dGVzdF9hdWRpbw=="
@@ -75,14 +78,15 @@ async def test_transcribe_success(
 @pytest.mark.asyncio
 async def test_transcribe_error(api_client: OpenRouterClient) -> None:
     """
-    Checks if API errors are handled and returned as error strings.
+    Checks if API errors are re-raised.
     """
-    api_client.client.chat = MagicMock()
-    api_client.client.chat.completions.create = AsyncMock(
+    api_client.client.beta = MagicMock()
+    api_client.client.beta.chat = MagicMock()
+    api_client.client.beta.chat.completions = MagicMock()
+    api_client.client.beta.chat.completions.parse = AsyncMock(
         side_effect=Exception("API Error")
     )
 
     audio_data = np.array([0.1], dtype=np.float32)
-    result = await api_client.transcribe(audio_data, 16000, "test-model")
-
-    assert "Error: API Error" in result
+    with pytest.raises(Exception, match="API Error"):
+        await api_client.transcribe(audio_data, 16000, "test-model")

@@ -5,9 +5,44 @@ OpenRouter API integration for STT using Chat Completions with Audio Input.
 import base64
 import io
 import wave
+from typing import Type, TypeVar
 
 import numpy as np
 from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class InteractiveResponse(BaseModel):
+    """
+    Structured response for interactive transcription deltas.
+    """
+
+    delta_text: str = Field(
+        default="", description="The newly transcribed text since the last context."
+    )
+    is_final: bool = Field(
+        default=False,
+        description="Whether this segment is considered final or interim.",
+    )
+
+
+class BatchResponse(BaseModel):
+    """
+    Structured response for full transcription.
+    """
+
+    full_text: str = Field(default="", description="The complete transcribed text.")
+
+
+class CommandResponse(BaseModel):
+    """
+    Structured response for command execution requests.
+    """
+
+    action: str = Field(description="The action to perform.")
+    parameters: dict = Field(default_factory=dict, description="Action parameters.")
 
 
 class OpenRouterClient:
@@ -33,21 +68,23 @@ class OpenRouterClient:
         samplerate: int,
         model: str,
         instruction: str = "Transcribe this audio exactly.",
-    ) -> str:
+        response_model: Type[T] = BatchResponse,
+    ) -> T:
         """
-        Sends audio data to OpenRouter for transcription using Chat Completions.
+        Sends audio data to OpenRouter for transcription using Chat Completions with Structured Output.
 
         Args:
             audio_data: The audio payload as a float32 numpy array.
             samplerate: The sample rate of the audio data.
             model: The multimodal model to use (e.g., openai/gpt-4o-audio-preview).
             instruction: The instruction to give to the model.
+            response_model: The Pydantic model to parse the response into.
 
         Returns:
-            The transcribed text.
+            The parsed Pydantic model.
         """
         if audio_data.size == 0:
-            return ""
+            return response_model()
 
         # 1. Convert float32 [-1.0, 1.0] to int16
         audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
@@ -64,9 +101,10 @@ class OpenRouterClient:
         # 3. Encode to Base64
         base64_audio = base64.b64encode(buffer.read()).decode("utf-8")
 
-        # 4. Call OpenRouter Chat Completions API
+        # 4. Call OpenRouter Chat Completions API with Structured Output
         try:
-            response = await self.client.chat.completions.create(
+            # We use the standard 'parse' method from openai-python for Pydantic support
+            completion = await self.client.beta.chat.completions.parse(
                 model=model,
                 messages=[
                     {
@@ -80,8 +118,14 @@ class OpenRouterClient:
                         ],
                     }
                 ],
+                response_format=response_model,
             )
-            return response.choices[0].message.content or ""
+            parsed = completion.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError("Failed to parse response into model.")
+            return parsed
         except Exception as e:
+            # For robustness, we might want to return an empty model or handle errors differently
+            # For now, let's re-raise or return a default instance if possible
             print(f"Transcription error: {e}")
-            return f"Error: {e}"
+            raise e

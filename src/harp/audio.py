@@ -59,8 +59,29 @@ class AudioStreamer:
             A numpy array containing the recorded PCM data so far.
         """
         if not self.audio_buffer:
-            return np.array([], dtype=np.float32)
-        return np.concatenate(self.audio_buffer)
+            return np.array([], dtype=np.float32).reshape(-1, 1)
+        # Note: sounddevice indata is (frames, channels), so we concatenate on axis 0
+        return np.concatenate(self.audio_buffer, axis=0)
+
+    def get_rolling_window(self, seconds: float = 5.0) -> np.ndarray:
+        """
+        Returns the last N seconds of the recorded audio buffer.
+
+        Args:
+            seconds: Duration in seconds to retrieve from the end.
+
+        Returns:
+            A numpy array containing the last N seconds of PCM data.
+        """
+        full_buffer = self.get_current_buffer()
+        if full_buffer.size == 0:
+            return full_buffer
+
+        required_samples = int(seconds * self.samplerate)
+        if full_buffer.shape[0] <= required_samples:
+            return full_buffer
+
+        return full_buffer[-required_samples:]
 
     def stop_recording(self) -> np.ndarray:
         """
