@@ -2,7 +2,7 @@
 Tests for the Harpo daemon.
 """
 
-from harpo.daemon import DaemonState, HarpoDaemon
+from harp.daemon import DaemonState, HarpoDaemon
 
 
 def test_daemon_initial_state() -> None:

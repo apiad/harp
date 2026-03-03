@@ -4,7 +4,7 @@ CLI entry point for Harpo.
 
 import typer
 
-from harpo.daemon import HarpoDaemon
+from harp.daemon import HarpoDaemon
 
 app = typer.Typer()
 

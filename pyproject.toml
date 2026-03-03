@@ -1,5 +1,5 @@
 [project]
-name = "harpo"
+name = "harp"
 version = "0.1.0"
 description = "A background daemon for Wayland that transcribes audio and types results."
 readme = "README.md"
