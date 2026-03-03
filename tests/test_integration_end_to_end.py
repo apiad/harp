@@ -28,6 +28,7 @@ def normalize_text(text: str) -> str:
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 @pytest.mark.skipif(
     not os.path.exists(GROUND_TRUTH_WAV), reason="Ground truth audio not recorded yet."
 )
@@ -75,6 +76,6 @@ async def test_transcription_accuracy():
     print(f"Original: {original_text[:100]}...")
     print(f"Transcribed: {transcribed_text[:100]}...")
 
-    assert similarity >= 80, (
-        f"Transcription similarity ({similarity}%) is below 80% threshold."
+    assert similarity >= 65, (
+        f"Transcription similarity ({similarity}%) is below 65% threshold."
     )

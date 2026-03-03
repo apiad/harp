@@ -3,8 +3,12 @@
 all: check
 
 test:
-	@echo "Running tests..."
-	uv run pytest --cov=src --cov-report=term-missing
+	@echo "Running unit tests..."
+	uv run pytest -m "not integration" --cov=src --cov-report=term-missing
+
+test-integration:
+	@echo "Running integration tests..."
+	uv run pytest -m "integration" -s
 
 lint:
 	@echo "Running linter..."
