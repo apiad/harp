@@ -49,14 +49,15 @@ async def test_transcribe_success(
     """
     # Setup mocks
     mock_b64encode.return_value = b"dGVzdF9hdWRpbw=="
-    api_client.client.chat = MagicMock()
-    api_client.client.chat.completions = MagicMock()
-    api_client.client.chat.completions.create = AsyncMock()
+    api_client.client.beta = MagicMock()
+    api_client.client.beta.chat = MagicMock()
+    api_client.client.beta.chat.completions = MagicMock()
+    api_client.client.beta.chat.completions.parse = AsyncMock()
 
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = '{"full_text": "Success"}'
-    api_client.client.chat.completions.create.return_value = mock_response
+    mock_response.choices[0].message.parsed = BatchResponse(full_text="Success")
+    api_client.client.beta.chat.completions.parse.return_value = mock_response
 
     audio_data = np.array([0.1, -0.1], dtype=np.float32)
 
@@ -65,16 +66,12 @@ async def test_transcribe_success(
     )
 
     assert result.full_text == "Success"
-    api_client.client.chat.completions.create.assert_called_once()
+    api_client.client.beta.chat.completions.parse.assert_called_once()
 
     # Check if the instruction and base64 audio were passed correctly
-    call_args = api_client.client.chat.completions.create.call_args
+    call_args = api_client.client.beta.chat.completions.parse.call_args
     messages = call_args.kwargs["messages"]
-    assert "test-instruction" in messages[0]["content"][0]["text"]
-    assert (
-        "IMPORTANT: You MUST respond with a valid JSON object"
-        in messages[0]["content"][0]["text"]
-    )
+    assert messages[0]["content"][0]["text"] == "test-instruction"
     assert messages[0]["content"][1]["input_audio"]["data"] == "dGVzdF9hdWRpbw=="
 
 
@@ -83,9 +80,10 @@ async def test_transcribe_error(api_client: OpenRouterClient) -> None:
     """
     Checks if API errors are re-raised.
     """
-    api_client.client.chat = MagicMock()
-    api_client.client.chat.completions = MagicMock()
-    api_client.client.chat.completions.create = AsyncMock(
+    api_client.client.beta = MagicMock()
+    api_client.client.beta.chat = MagicMock()
+    api_client.client.beta.chat.completions = MagicMock()
+    api_client.client.beta.chat.completions.parse = AsyncMock(
         side_effect=Exception("API Error")
     )
 

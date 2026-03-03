@@ -101,23 +101,16 @@ class OpenRouterClient:
         # 3. Encode to Base64
         base64_audio = base64.b64encode(buffer.read()).decode("utf-8")
 
-        # 4. Call OpenRouter Chat Completions API
-        # Fallback to manual JSON parsing if the provider doesn't support native Structured Outputs
+        # 4. Call OpenRouter Chat Completions API with Structured Output
         try:
-            # Add explicit JSON formatting instructions to the prompt
-            json_instruction = (
-                f"\n\nIMPORTANT: You MUST respond with a valid JSON object matching this schema:\n"
-                f"{response_model.model_json_schema()}\n"
-                "Do not include any other text, markdown blocks, or explanations."
-            )
-
-            completion = await self.client.chat.completions.create(
+            # We use the standard 'parse' method from openai-python for Pydantic support
+            completion = await self.client.beta.chat.completions.parse(
                 model=model,
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": instruction + json_instruction},
+                            {"type": "text", "text": instruction},
                             {
                                 "type": "input_audio",
                                 "input_audio": {"data": base64_audio, "format": "wav"},
@@ -125,15 +118,12 @@ class OpenRouterClient:
                         ],
                     }
                 ],
-                # We stop using response_format=response_model as it triggers the unsupported 'json_schema'
-                response_format={"type": "json_object"},
+                response_format=response_model,
             )
-
-            raw_content = completion.choices[0].message.content
-            if not raw_content:
-                raise ValueError("Empty response from model.")
-
-            return response_model.model_validate_json(raw_content)
+            parsed = completion.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError("Failed to parse response into model.")
+            return parsed
         except Exception as e:
             print(f"Transcription error: {e}")
             raise e
