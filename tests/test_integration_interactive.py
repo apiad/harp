@@ -30,9 +30,9 @@ def normalize_text(text: str) -> str:
 @pytest.mark.skipif(
     not os.path.exists(GROUND_TRUTH_WAV), reason="Ground truth audio not recorded yet."
 )
-async def test_interactive_transcription_stitching():
+async def test_interactive_transcription_sliding_window():
     """
-    Simulates interactive mode with the new Warm-up + Contextual Overlap logic.
+    Simulates interactive mode with the new sliding-window re-transcription strategy.
     """
     # 1. Load Ground Truth
     with open(GROUND_TRUTH_TXT, "r") as f:
@@ -49,45 +49,47 @@ async def test_interactive_transcription_stitching():
     if not config.api_key:
         pytest.fail("HARP_API_KEY not set")
 
-    daemon = HarpoDaemon(interactive=True, interval=1.0)
+    daemon = HarpoDaemon(interactive=True, interval=5.0)
     daemon.state = DaemonState.RECORDING
 
     # Simulation Parameters (Matching daemon.py)
     warmup_seconds = 15.0
     window_seconds = 10.0
-
-    chunk_step_seconds = 2.0  # Simulate an iteration every 2 seconds
+    loop_interval = 5.0
+    
     total_samples = len(full_audio)
     current_sample = 0
-
-    intermediate_results = []
+    
     start_time = time.time()
 
-    print("\n[DEBUG] Starting contextual interactive simulation...")
+    print("\n[DEBUG] Starting sliding-window interactive simulation...")
 
     while current_sample < total_samples:
         iter_start = time.time()
-
-        # Advance time
-        current_sample += int(chunk_step_seconds * samplerate)
+        
+        # Initial 15s buffer, then 5s steps
+        if current_sample == 0:
+            current_sample = int(warmup_seconds * samplerate)
+        else:
+            current_sample += int(loop_interval * samplerate)
+            
         current_duration = current_sample / samplerate
-
-        if current_duration < warmup_seconds:
-            print(f"[{current_duration:4.1f}s] Buffering...")
-            continue
+        
+        if current_sample > total_samples:
+            current_sample = total_samples
 
         # Get rolling window (last 10 seconds)
         window_start = max(0, current_sample - int(window_seconds * samplerate))
         audio_data = full_audio[window_start:current_sample].reshape(-1, 1)
-
-        # 4. Context-Aware Prompting (Matching daemon.py logic)
-        context = daemon.current_session_text[-200:]
+        
+        # 4. Prompt with FULL Context (Matching daemon.py logic)
         instruction = (
             "You are a real-time transcription assistant. "
-            f"The user has already said: '...{context}'. "
-            "The provided audio overlaps with the end of that text. "
-            "Transcribe the audio exactly, starting from where the context ends. "
-            "Return ONLY the transcription."
+            f"So far, you have transcribed: '{daemon.current_session_text}'. "
+            "The following 10 seconds of audio continues the session with some overlap. "
+            "Provide the FULL, UPDATED transcription of the session so far. "
+            "IMPORTANT: Make sure the existing prefix of the text stays the same or as similar as possible. "
+            "Return ONLY the updated full transcription."
         )
 
         try:
@@ -98,58 +100,18 @@ async def test_interactive_transcription_stitching():
                 instruction=instruction,
                 response_model=BatchResponse,
             )
-            window_text = daemon.typer.filter_text(response.full_text)
+            updated_full_text = daemon.typer.filter_text(response.full_text)
         except Exception as e:
             print(f"[ERROR] API call failed: {e}")
             continue
 
         api_latency = time.time() - iter_start
 
-        # 5. Fuzzy Stitching (Matching daemon.py logic)
-        words_session = daemon.current_session_text.split()
-        words_window = window_text.split()
-
-        if not words_session:
-            new_total_text = window_text
-        else:
-            best_match_idx = -1
-            max_ratio = 0
-            lookback = min(len(words_session), 10)
-
-            for i in range(1, lookback + 1):
-                overlap_candidate = " ".join(words_session[-i:])
-                window_start_text = " ".join(words_window[: i + 2])
-                ratio = fuzz.partial_ratio(
-                    overlap_candidate.lower(), window_start_text.lower()
-                )
-
-                if ratio > 85 and ratio > max_ratio:
-                    max_ratio = ratio
-                    best_match_idx = i
-
-            if best_match_idx != -1:
-                remaining_words = words_window[best_match_idx:]
-                new_total_text = (
-                    daemon.current_session_text + " " + " ".join(remaining_words)
-                )
-            else:
-                if len(words_window) > 5:
-                    new_total_text = (
-                        daemon.current_session_text + " " + window_text
-                    ).strip()
-                else:
-                    new_total_text = daemon.current_session_text
-
-        delta = new_total_text[len(daemon.current_session_text) :].strip()
-        daemon.current_session_text = new_total_text
-
-        intermediate_results.append(
-            {"chunk_end_sec": current_duration, "delta": delta, "latency": api_latency}
-        )
-
-        print(
-            f"[{current_duration:4.1f}s] Latency: {api_latency:.2f}s | Delta: '{delta}'"
-        )
+        # 5. Full Update (LCP logic is handled by type_diff in the real daemon, 
+        # but here we just update the state)
+        daemon.current_session_text = updated_full_text
+        
+        print(f"[{current_duration:4.1f}s] Latency: {api_latency:.2f}s | Current Len: {len(updated_full_text)}")
 
     total_duration = time.time() - start_time
     final_text = daemon.current_session_text
@@ -163,6 +125,4 @@ async def test_interactive_transcription_stitching():
     print(f"Final Similarity: {similarity}%")
     print(f"Final Result: {final_text[:200]}...")
 
-    assert similarity >= 50, (
-        f"Interactive stitching similarity ({similarity}%) is too low."
-    )
+    assert similarity >= 60, f"Sliding window similarity ({similarity}%) is too low."

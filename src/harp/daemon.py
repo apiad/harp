@@ -42,7 +42,7 @@ class HarpoDaemon:
         toggle: bool = False,
         full_mode: bool = False,
         interactive: bool = False,
-        interval: float = 2.0,
+        interval: float = 5.0,
     ) -> None:
         """
         Initializes the HarpoDaemon with its components and state.
@@ -162,20 +162,21 @@ class HarpoDaemon:
 
     async def _interactive_loop(self) -> None:
         """
-        Overhauled interactive loop with warm-up phase and contextual stitching.
+        Interactive loop using sliding-window re-transcription.
         """
         self.hud.show()
-        self.hud.update_text("Buffering audio...")
+        self.hud.update_text("Buffering initial 15s...")
 
         warmup_seconds = 15.0
         window_seconds = 10.0
 
         try:
             while self.state == DaemonState.RECORDING:
-                # 1. Warm-up Phase: Wait until we have enough audio to start
+                # 1. Check Buffer Duration
                 buffer_size = self.audio_streamer.get_current_buffer().shape[0]
                 current_audio_duration = buffer_size / self.audio_streamer.samplerate
 
+                # Wait for initial 15s
                 if current_audio_duration < warmup_seconds:
                     self.hud.update_text(
                         f"Buffering... {current_audio_duration:.1f}s / {warmup_seconds}s"
@@ -183,31 +184,29 @@ class HarpoDaemon:
                     await asyncio.sleep(1.0)
                     continue
 
-                # 2. Adaptive Wait: Match sampling interval to API latency (~2.5s)
+                # 2. Adaptive Wait: Every 5 seconds
                 await asyncio.sleep(self.interval)
 
                 async with self._interactive_lock:
                     if self.state != DaemonState.RECORDING:
                         break
 
-                    # 3. Get Rolling Window
+                    # 3. Get Rolling Window (Last 10s)
                     audio_data = self.audio_streamer.get_rolling_window(
                         seconds=window_seconds
                     )
                     if audio_data.size == 0:
                         continue
 
-                    # 4. Context-Aware Prompting
-                    # We tell the model what has already been typed so it can anchor the new text
-                    context = self.current_session_text[
-                        -200:
-                    ]  # Last 200 chars for brevity
+                    # 4. Prompt with FULL Context
+                    # We ask the model to provide the UPDATED full text of the session.
                     instruction = (
                         "You are a real-time transcription assistant. "
-                        f"The user has already said: '...{context}'. "
-                        "The provided audio overlaps with the end of that text. "
-                        "Transcribe the audio exactly, starting from where the context ends. "
-                        "Return ONLY the transcription."
+                        f"So far, you have transcribed: '{self.current_session_text}'. "
+                        "The following 10 seconds of audio continues the session with some overlap. "
+                        "Provide the FULL, UPDATED transcription of the session so far. "
+                        "IMPORTANT: Make sure the existing prefix of the text stays the same or as similar as possible. "
+                        "Return ONLY the updated full transcription."
                     )
 
                     try:
@@ -218,71 +217,24 @@ class HarpoDaemon:
                             instruction=instruction,
                             response_model=BatchResponse,
                         )
-                        window_text = self.typer.filter_text(response.full_text)
-                        self.console.print(
-                            f"[dim]Interactive Window: '{window_text}'[/]"
-                        )
+                        updated_full_text = self.typer.filter_text(response.full_text)
+                        self.console.print(f"[dim]Interactive Window Update: '{updated_full_text}'[/]")
                     except Exception as e:
                         self.console.print(f"[yellow]API error: {e}[/]")
                         continue
 
-                    if not window_text:
+                    if not updated_full_text:
                         continue
 
-                    # 5. Robust Fuzzy Stitching
-                    # We find the best overlap between the end of session text and the start of window text
-                    words_session = self.current_session_text.split()
-                    words_window = window_text.split()
-
-                    if not words_session:
-                        new_total_text = window_text
-                    else:
-                        best_match_idx = -1
-                        max_ratio = 0
-                        # Look back up to 10 words for an overlap
-                        lookback = min(len(words_session), 10)
-
-                        for i in range(1, lookback + 1):
-                            overlap_candidate = " ".join(words_session[-i:])
-                            # Compare with the start of the window (first i+2 words to handle minor variations)
-                            window_start = " ".join(words_window[: i + 2])
-                            ratio = fuzz.partial_ratio(
-                                overlap_candidate.lower(), window_start.lower()
-                            )
-
-                            if ratio > 85 and ratio > max_ratio:
-                                max_ratio = ratio
-                                best_match_idx = i
-
-                        if best_match_idx != -1:
-                            # We found a fuzzy match. Join and take the rest of the window.
-                            # We estimate the skip point in the window text
-                            remaining_words = words_window[best_match_idx:]
-                            new_total_text = (
-                                self.current_session_text
-                                + " "
-                                + " ".join(remaining_words)
-                            )
-                        else:
-                            # No good overlap found, fallback to simple append if the window
-                            # seems entirely new, otherwise just keep current.
-                            # For safety, we only append if the window is long.
-                            if len(words_window) > 5:
-                                new_total_text = (
-                                    self.current_session_text + " " + window_text
-                                ).strip()
-                            else:
-                                new_total_text = self.current_session_text
-
-                    # 6. UI Update and Physical Typing
-                    if new_total_text != self.current_session_text:
-                        self.hud.update_text(new_total_text)
+                    # 5. UI Update and Physical Typing using type_diff
+                    # type_diff handles LCP and only types the difference.
+                    if updated_full_text != self.current_session_text:
+                        self.hud.update_text(updated_full_text)
                         if not self.pause_typing:
                             self._release_modifiers()
-                            self.typer.type_diff(
-                                self.current_session_text, new_total_text
-                            )
-                            self.current_session_text = new_total_text
+                            # Synchronize physical keyboard with the model's new full state
+                            self.typer.type_diff(self.current_session_text, updated_full_text)
+                            self.current_session_text = updated_full_text
 
         except asyncio.CancelledError:
             pass
