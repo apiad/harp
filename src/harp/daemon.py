@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.status import Status
 from rich.panel import Panel
 
-from harp.api import BatchResponse, InteractiveResponse, OpenRouterClient
+from harp.api import BatchResponse, OpenRouterClient
 from harp.audio import AudioStreamer
 from harp.config import HarpoConfig
 from harp.hud import HarpoHUD
@@ -182,23 +182,23 @@ class HarpoDaemon:
 
                     instruction = (
                         "You are a real-time transcription assistant. "
-                        f"The user has already typed: '{self.current_session_text}'. "
-                        "Listen to the last 5 seconds of audio and output ONLY the NEW words that follow the context. "
-                        "Do NOT repeat the context. If nothing new is heard, return an empty string for delta_text."
+                        "Transcribe the provided audio exactly. "
+                        "Return only the transcription."
                     )
 
-                    # Fetch transcription
+                    # Fetch transcription (now using BatchResponse for the full window)
                     try:
                         response = await self.api_client.transcribe(
                             audio_data=audio_data,
                             samplerate=self.audio_streamer.samplerate,
                             model=self.config.api_model,
                             instruction=instruction,
-                            response_model=InteractiveResponse,
+                            response_model=BatchResponse,
                         )
+                        window_text = self.typer.filter_text(response.full_text)
                         # Debug logging
                         self.console.print(
-                            f"[dim]Interactive: delta='{response.delta_text}' is_final={response.is_final}[/]"
+                            f"[dim]Interactive Window: '{window_text}'[/]"
                         )
                     except Exception as e:
                         self.console.print(
@@ -206,25 +206,62 @@ class HarpoDaemon:
                         )
                         continue
 
-                    new_delta = self.typer.filter_text(response.delta_text)
+                    if not window_text:
+                        continue
 
-                    # UI Update: HUD always shows the most recent "best guess"
-                    interim_text = self.current_session_text
-                    if new_delta:
-                        interim_text = (interim_text + " " + new_delta).strip()
+                    # LOCAL STITCHING LOGIC
+                    # We want to find if the beginning of window_text overlaps
+                    # with the end of current_session_text.
 
-                    if interim_text:
-                        self.hud.update_text(interim_text)
+                    words_session = self.current_session_text.split()
+                    words_window = window_text.split()
 
-                    # Local Agreement (Aggressive 1-pass for testing)
-                    if new_delta:
+                    if not words_session:
+                        new_total_text = window_text
+                    else:
+                        # Try to find the largest overlap
+                        overlap_found = False
+                        # Check from the last 5 words down to 1
+                        for i in range(min(len(words_session), 5), 0, -1):
+                            overlap_candidate = " ".join(words_session[-i:])
+                            # Check if window_text starts with this overlap
+                            if window_text.lower().startswith(
+                                overlap_candidate.lower()
+                            ):
+                                # Found the stitch point
+                                # Join the session text with the non-overlapping part of the window
+                                # Note: we use original casing from the window for the new part
+                                remaining_words = words_window[i:]
+                                if remaining_words:
+                                    new_total_text = (
+                                        self.current_session_text
+                                        + " "
+                                        + " ".join(remaining_words)
+                                    )
+                                else:
+                                    new_total_text = self.current_session_text
+                                overlap_found = True
+                                break
+
+                        if not overlap_found:
+                            # If no overlap, assume it's completely new text (or we missed something)
+                            # For safety in interactive mode, we append it with a space
+                            new_total_text = (
+                                self.current_session_text + " " + window_text
+                            ).strip()
+
+                    # UI Update: HUD always shows the most recent "total" guess
+                    if new_total_text:
+                        self.hud.update_text(new_total_text)
+
+                    # Sync the active application
+                    if new_total_text != self.current_session_text:
                         if not self.pause_typing:
                             self._release_modifiers()
-                            # Sync the active application with the new text
                             self.typer.type_diff(
-                                self.current_session_text, interim_text
+                                self.current_session_text, new_total_text
                             )
-                            self.current_session_text = interim_text
+                            self.current_session_text = new_total_text
 
         except asyncio.CancelledError:
             pass

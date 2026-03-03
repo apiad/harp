@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from harp.daemon import DaemonState, HarpoDaemon
-from harp.api import InteractiveResponse, BatchResponse
+from harp.api import BatchResponse
 
 
 @pytest.fixture
@@ -98,43 +98,7 @@ async def test_handle_events_ctrl_space(async_daemon: HarpoDaemon) -> None:
 @pytest.mark.asyncio
 async def test_interactive_loop_incremental(async_daemon: HarpoDaemon) -> None:
     """
-    Verifies suffix typing in interactive loop using current logic.
-    """
-    async_daemon.state = DaemonState.RECORDING
-    async_daemon.interactive = True
-    async_daemon.interval = 0.001  # very fast
-
-    # Mock rolling window to return some data
-    async_daemon.audio_streamer.get_rolling_window.return_value = np.array(
-        [[0.1]], dtype=np.float32
-    )
-
-    # Return structured response: "world"
-    async_daemon.api_client.transcribe = AsyncMock(
-        return_value=InteractiveResponse(delta_text="world", is_final=False)
-    )
-    async_daemon.typer.filter_text.side_effect = lambda x: x
-
-    async_daemon.current_session_text = "Hello"
-
-    task = asyncio.create_task(async_daemon._interactive_loop())
-
-    # Wait until transcribe is called once
-    while async_daemon.api_client.transcribe.call_count < 1:
-        await asyncio.sleep(0.001)
-
-    async_daemon.state = DaemonState.IDLE  # stop loop
-    await task
-
-    # Should have called type_diff with "Hello" -> "Hello world"
-    async_daemon.typer.type_diff.assert_any_call("Hello", "Hello world")
-    assert "Hello world" in async_daemon.current_session_text
-
-
-@pytest.mark.asyncio
-async def test_interactive_loop_replacement(async_daemon: HarpoDaemon) -> None:
-    """
-    Verifies full replacement when prefix doesn't match.
+    Verifies stitching in interactive loop.
     """
     async_daemon.state = DaemonState.RECORDING
     async_daemon.interactive = True
@@ -143,12 +107,17 @@ async def test_interactive_loop_replacement(async_daemon: HarpoDaemon) -> None:
     async_daemon.audio_streamer.get_rolling_window.return_value = np.array(
         [[0.1]], dtype=np.float32
     )
+
+    # Simulation:
+    # 1. Start with "Hello"
+    # 2. Window returns "Hello world"
+    # 3. Local stitching should result in "Hello world"
     async_daemon.api_client.transcribe = AsyncMock(
-        return_value=InteractiveResponse(delta_text="New text", is_final=False)
+        return_value=BatchResponse(full_text="Hello world")
     )
     async_daemon.typer.filter_text.side_effect = lambda x: x
 
-    async_daemon.current_session_text = "Original"
+    async_daemon.current_session_text = "Hello"
 
     task = asyncio.create_task(async_daemon._interactive_loop())
 
@@ -158,9 +127,8 @@ async def test_interactive_loop_replacement(async_daemon: HarpoDaemon) -> None:
     async_daemon.state = DaemonState.IDLE
     await task
 
-    expected_interim = "Original New text"
-    async_daemon.typer.type_diff.assert_any_call("Original", expected_interim)
-    assert expected_interim in async_daemon.current_session_text
+    async_daemon.typer.type_diff.assert_any_call("Hello", "Hello world")
+    assert async_daemon.current_session_text == "Hello world"
 
 
 @pytest.mark.asyncio
