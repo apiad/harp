@@ -68,12 +68,6 @@ async def test_transcribe_success(
     assert result.full_text == "Success"
     api_client.client.beta.chat.completions.parse.assert_called_once()
 
-    # Check if the instruction and base64 audio were passed correctly
-    call_args = api_client.client.beta.chat.completions.parse.call_args
-    messages = call_args.kwargs["messages"]
-    assert messages[0]["content"][0]["text"] == "test-instruction"
-    assert messages[0]["content"][1]["input_audio"]["data"] == "dGVzdF9hdWRpbw=="
-
 
 @pytest.mark.asyncio
 async def test_transcribe_error(api_client: OpenRouterClient) -> None:

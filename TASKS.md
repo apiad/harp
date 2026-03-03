@@ -32,6 +32,9 @@ Put done tasks into the Archive.
 ### Portability
 - [ ] Research and scaffold macOS support (CoreAudio/Quartz) (#12)
 
+### Testing
+- [ ] Implement voice-based integration test (#14) (See plan: `plans/voice-integration-test.md`)
+
 ---
 
  ## Archive

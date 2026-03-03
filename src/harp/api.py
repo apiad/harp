@@ -118,6 +118,7 @@ class OpenRouterClient:
                         ],
                     }
                 ],
+                # Pass the Pydantic model directly
                 response_format=response_model,
             )
             parsed = completion.choices[0].message.parsed

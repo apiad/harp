@@ -23,4 +23,4 @@ class HarpoConfig(BaseSettings):
 
     api_key: str = ""
     api_base_url: str = "https://openrouter.ai/api/v1"
-    api_model: str = "google/gemini-flash-1.5"
+    api_model: str = "google/gemini-2.5-flash"
