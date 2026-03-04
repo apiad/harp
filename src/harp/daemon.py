@@ -9,7 +9,9 @@ import time
 from enum import Enum, auto
 
 import evdev
+import numpy as np
 import pyperclip
+import sounddevice as sd
 from pynput import keyboard
 from rich.console import Console
 from rich.status import Status
@@ -108,7 +110,36 @@ class HarpoDaemon:
             title: The title of the notification.
             message: The message body of the notification.
         """
-        subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "1000"])
+        # Truncate message to avoid huge notifications
+        if len(message) > 200:
+            message = message[:197] + "..."
+        # Escape quotes for bash safety when using subprocess if needed, but array handles it.
+        subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "3000"])
+
+    def _play_chime(self, start: bool) -> None:
+        """
+        Plays a small audio chime. High pitch for start, low pitch for stop.
+        """
+        try:
+            sample_rate = 44100
+            duration = 0.1
+            t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+
+            # Start: 880 Hz, Stop: 440 Hz
+            freq = 880.0 if start else 440.0
+
+            # Simple envelope to avoid clicking
+            envelope = np.ones_like(t)
+            ramp = int(0.01 * sample_rate)
+            envelope[:ramp] = np.linspace(0, 1, ramp)
+            envelope[-ramp:] = np.linspace(1, 0, ramp)
+
+            wave = 0.5 * np.sin(2 * np.pi * freq * t) * envelope
+
+            # Play non-blocking
+            sd.play(wave, sample_rate)
+        except Exception as e:
+            self.console.print(f"[yellow]Failed to play chime: {e}[/]")
 
     def _get_clipboard_context(self) -> str | None:
         """
@@ -178,6 +209,7 @@ class HarpoDaemon:
         """
         if self.state == DaemonState.IDLE:
             self.state = DaemonState.RECORDING
+            self._play_chime(start=True)
             self.audio_streamer.start_recording()
             mode_str = "command" if self._is_command_mode else "capturing"
             self.console.print(f"[bold green]{mode_str}...[/]")
@@ -189,6 +221,7 @@ class HarpoDaemon:
         """
         if self.state == DaemonState.RECORDING:
             self.state = DaemonState.PROCESSING
+            self._play_chime(start=False)
 
             audio_data = self.audio_streamer.stop_recording()
             self.console.print("[bold blue]idle[/]")
@@ -217,6 +250,7 @@ class HarpoDaemon:
                                 border_style="cyan",
                             )
                         )
+                        self._notify("Sent to LLM", instruction)
 
                         response = await self.api_client.transcribe(
                             audio_data=audio_data,
@@ -235,6 +269,7 @@ class HarpoDaemon:
                                 border_style="cyan",
                             )
                         )
+                        self._notify("Transcription Ready", transcription)
 
                         if self.to_clipboard:
                             try:
