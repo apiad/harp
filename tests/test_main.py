@@ -23,7 +23,12 @@ def test_cli_start_defaults(mock_daemon_class: MagicMock) -> None:
 
     assert result.exit_code == 0
     mock_daemon_class.assert_called_once_with(
-        device_path=None, toggle=False, full_mode=False
+        device_path=None,
+        toggle=False,
+        full_mode=False,
+        clipboard=False,
+        tokens=500,
+        to_clipboard=False,
     )
     mock_instance.run.assert_called_once()
 
@@ -42,6 +47,10 @@ def test_cli_start_custom(mock_daemon_class: MagicMock) -> None:
             "/dev/input/event0",
             "--toggle",
             "--full",
+            "--clipboard",
+            "--tokens",
+            "1000",
+            "--to-clipboard",
         ],
     )
 
@@ -50,6 +59,9 @@ def test_cli_start_custom(mock_daemon_class: MagicMock) -> None:
         device_path="/dev/input/event0",
         toggle=True,
         full_mode=True,
+        clipboard=True,
+        tokens=1000,
+        to_clipboard=True,
     )
     mock_instance.run.assert_called_once()
 

@@ -37,7 +37,7 @@ Put done tasks into the Archive.
 
 ---
 
- ## Archive
+## Archive
 
 > Done tasks go here, in the order they where finished, with a finished date.
 
@@ -47,3 +47,4 @@ Put done tasks into the Archive.
 - [x] Implement batch audio transcription via OpenRouter (See plan: `plans/audio-transcription.md`) (2026-03-03)
 - [x] Implement keyboard emulation for typing transcriptions (See plan: `plans/keyboard-emulation.md`) (2026-03-03)
 - [x] Implement 'Command' mode (Ctrl + Shift + Space) for voice instructions (2026-03-03)
+- [x] Implement Clipboard Context & Auto-Copy features (See plan: `plans/clipboard-context-features.md`) (2026-03-04)
