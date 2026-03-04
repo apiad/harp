@@ -17,6 +17,9 @@
 - **Flexible Operation**:
     - **Hold Mode**: Record while you hold the hotkey.
     - **Toggle Mode (`--toggle`)**: Click once to start, click again to stop.
+- **Clipboard Integration**:
+    - **Context Awareness (`--clipboard`)**: In Command Mode, Harp can read your clipboard and send the last 500 words (configurable) to the LLM to provide context (e.g., "Summarize the text I just copied").
+    - **Auto-Copy (`--to-clipboard`)**: Automatically copy the final transcribed text or command result directly to your clipboard for easy pasting elsewhere.
 - **Robust Typing**:
     - Supports standard US-ASCII and Latin characters (tildes, ñ, etc.).
     - **Safe Filtering**: By default, only types letters and numbers to avoid accidental shortcut triggers. Use `--full` to type everything.
@@ -63,22 +66,43 @@ sudo chmod 666 /dev/uinput
 ```env
 HARP_API_KEY=your_openrouter_api_key
 ```
-3.  **Dependencies**: Ensure `libportaudio2` is installed on your system.
+3.  **Dependencies**: Ensure `libportaudio2` and `xclip` or `wl-clipboard` (for `pyperclip` support on Linux) are installed on your system.
 
 ```bash
-sudo apt install libportaudio2
+sudo apt install libportaudio2 xclip
 ```
 
 ## ⌨️ Usage
 
-Start the daemon:
+Start the daemon using the CLI. By default, it runs in "Hold Mode" and only types safe characters.
 
 ```bash
-# Basic usage
 harp
+```
 
-# With toggle mode and full character typing
-harp --toggle --full
+### Configuration & CLI Options
+
+You can customize Harp's behavior using the following flags:
+
+| Option | Short | Description | Use Case |
+| :--- | :--- | :--- | :--- |
+| `--device <path>` | `-d` | Target a specific input device (e.g., `/dev/input/event0`). | Useful if you have multiple keyboards and only want to trigger Harp from one specific device. |
+| `--toggle` | `-t` | Enable toggle mode instead of hold mode. | Press `Ctrl+Space` once to start recording, then press it again to stop and transcribe. |
+| `--full` | `-f` | Disable safe filtering and type all returned characters, including symbols. | Essential when dictating code, complex punctuation, or URLs. |
+| `--clipboard` | `-c` | **Command Mode Only:** Send the current clipboard content as context to the LLM. | Copy an email, press `Ctrl+Shift+Space`, and say "Draft a polite decline to this email." |
+| `--tokens <num>` | `-n` | Set the number of words to include when sending clipboard context. (Default: `500`) | Use `--tokens 1000` to provide larger context documents without blowing up your API costs. |
+| `--to-clipboard` | `-C` | Automatically copy the final transcribed text (or command result) to your clipboard. | Dictate an idea, let Harp type it out, and also have it ready in your clipboard to paste into another app immediately. |
+
+### Examples
+
+**Programmer Mode:** Toggle recording, type all code symbols, and copy the result to clipboard.
+```bash
+harp --toggle --full --to-clipboard
+```
+
+**Contextual Assistant:** Use clipboard context and limit to the last 1000 words.
+```bash
+harp --clipboard --tokens 1000
 ```
 
 ## 🤝 Contributing
