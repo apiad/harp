@@ -2,7 +2,6 @@
 Asynchronous tests for the HarpoDaemon.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import evdev
@@ -23,7 +22,6 @@ def async_daemon() -> HarpoDaemon:
         patch("harp.daemon.WaylandTyper"),
         patch("harp.daemon.OpenRouterClient"),
         patch("harp.daemon.HarpoConfig"),
-        patch("harp.daemon.HarpoHUD"),
     ):
         daemon = HarpoDaemon()
         # Ensure UI console is mocked to avoid output clutter
@@ -96,45 +94,9 @@ async def test_handle_events_ctrl_space(async_daemon: HarpoDaemon) -> None:
 
 
 @pytest.mark.asyncio
-async def test_interactive_loop_incremental(async_daemon: HarpoDaemon) -> None:
-    """
-    Verifies stitching in interactive loop.
-    """
-    async_daemon.state = DaemonState.RECORDING
-    async_daemon.interactive = True
-    async_daemon.interval = 0.001
-
-    async_daemon.audio_streamer.get_rolling_window.return_value = np.array(
-        [[0.1]], dtype=np.float32
-    )
-
-    # Simulation:
-    # 1. Start with "Hello"
-    # 2. Window returns "Hello world"
-    # 3. Local stitching should result in "Hello world"
-    async_daemon.api_client.transcribe = AsyncMock(
-        return_value=BatchResponse(full_text="Hello world")
-    )
-    async_daemon.typer.filter_text.side_effect = lambda x: x
-
-    async_daemon.current_session_text = "Hello"
-
-    task = asyncio.create_task(async_daemon._interactive_loop())
-
-    while async_daemon.api_client.transcribe.call_count < 1:
-        await asyncio.sleep(0.001)
-
-    async_daemon.state = DaemonState.IDLE
-    await task
-
-    async_daemon.typer.type_diff.assert_any_call("Hello", "Hello world")
-    assert async_daemon.current_session_text == "Hello world"
-
-
-@pytest.mark.asyncio
 async def test_stop_recording_success(async_daemon: HarpoDaemon) -> None:
     """
-    Verifies full transcription process on stop using type_diff.
+    Verifies full transcription process on stop.
     """
     async_daemon.state = DaemonState.RECORDING
     async_daemon.audio_streamer.stop_recording.return_value = np.array(
@@ -144,9 +106,8 @@ async def test_stop_recording_success(async_daemon: HarpoDaemon) -> None:
         return_value=BatchResponse(full_text="Final result")
     )
     async_daemon.typer.filter_text.side_effect = lambda x: x
-    async_daemon.current_session_text = "Partial"
 
     await async_daemon._stop_recording()
 
     assert async_daemon.state == DaemonState.IDLE
-    async_daemon.typer.type_diff.assert_called_with("Partial", "Final result")
+    async_daemon.typer.type_text.assert_called_with("Final result")

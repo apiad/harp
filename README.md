@@ -20,7 +20,6 @@
 - **Robust Typing**:
     - Supports standard US-ASCII and Latin characters (tildes, ñ, etc.).
     - **Safe Filtering**: By default, only types letters and numbers to avoid accidental shortcut triggers. Use `--full` to type everything.
-- **Experimental Interactive Mode**: Real-time transcription feedback as you speak (opt-in).
 - **Modern CLI**: Beautiful terminal interface with colors, spinners, and panels powered by `Rich`.
 
 ## 🚀 Installation
@@ -80,9 +79,6 @@ harp
 
 # With toggle mode and full character typing
 harp --toggle --full
-
-# Enable experimental interactive mode
-harp --interactive --interval 1.5
 ```
 
 ## 🤝 Contributing

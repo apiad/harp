@@ -162,30 +162,6 @@ class WaylandTyper:
             self.device.emit(uinput.KEY_BACKSPACE, 0)
             time.sleep(0.001)
 
-    def type_diff(self, current: str, target: str) -> None:
-        """
-        Calculates the Longest Common Prefix (LCP) between current and target text,
-        backspaces the difference, and types the remaining target suffix.
-
-        Args:
-            current: The text currently typed in the application.
-            target: The desired text to be typed.
-        """
-        common_prefix_len = 0
-        for char1, char2 in zip(current, target):
-            if char1 == char2:
-                common_prefix_len += 1
-            else:
-                break
-
-        backspaces = len(current) - common_prefix_len
-        if backspaces > 0:
-            self.backspace(backspaces)
-
-        suffix = target[common_prefix_len:]
-        if suffix:
-            self.type_text(suffix)
-
     def type_text(self, text: str) -> None:
         """
         Emulates keystrokes for the provided text.

@@ -16,7 +16,6 @@ from rich.panel import Panel
 from harp.api import BatchResponse, OpenRouterClient
 from harp.audio import AudioStreamer
 from harp.config import HarpoConfig
-from harp.hud import HarpoHUD
 from harp.input import WaylandTyper
 
 
@@ -40,8 +39,6 @@ class HarpoDaemon:
         device_path: str | None = None,
         toggle: bool = False,
         full_mode: bool = False,
-        interactive: bool = False,
-        interval: float = 5.0,
     ) -> None:
         """
         Initializes the HarpoDaemon with its components and state.
@@ -50,14 +47,10 @@ class HarpoDaemon:
             device_path: Optional path or name of the device to grab.
             toggle: Whether to toggle state on keypress.
             full_mode: Whether to type all characters or just a safe set.
-            interactive: Whether to enable real-time transcription.
-            interval: Sampling interval for interactive mode.
         """
         self.device_path: str | None = device_path
         self.toggle: bool = toggle
         self.full_mode: bool = full_mode
-        self.interactive: bool = interactive
-        self.interval: float = interval
 
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
@@ -67,12 +60,6 @@ class HarpoDaemon:
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
         self.typer = WaylandTyper(full_mode=full_mode)
-        self.hud = HarpoHUD()
-
-        # State for interactive mode
-        self.current_session_text: str = ""
-        self._interactive_task: asyncio.Task | None = None
-        self._interactive_lock = asyncio.Lock()
 
         # State for safety listener
         self._last_user_typing_time: float = 0.0
@@ -88,16 +75,6 @@ class HarpoDaemon:
             api_key=self.config.api_key,
             base_url=self.config.api_base_url,
         )
-
-        if self.interactive:
-            self.console.print(
-                Panel(
-                    "[bold red]INTERACTIVE MODE IS EXPERIMENTAL AND CURRENTLY BROKEN[/]\n"
-                    "[red]It may produce weird typing behavior or out-of-sync text.[/]",
-                    title="[bold yellow]WARNING[/]",
-                    border_style="red",
-                )
-            )
 
     @property
     def pause_typing(self) -> bool:
@@ -150,101 +127,10 @@ class HarpoDaemon:
         """
         if self.state == DaemonState.IDLE:
             self.state = DaemonState.RECORDING
-            self.current_session_text = ""
             self.audio_streamer.start_recording()
             mode_str = "command" if self._is_command_mode else "capturing"
             self.console.print(f"[bold green]{mode_str}...[/]")
             self._notify("Status", mode_str)
-
-            if self.interactive:
-                self._interactive_task = asyncio.create_task(self._interactive_loop())
-
-    async def _interactive_loop(self) -> None:
-        """
-        Interactive loop using sliding-window re-transcription.
-        """
-        self.hud.show()
-        self.hud.update_text("Buffering initial 15s...")
-
-        warmup_seconds = 15.0
-        window_seconds = 10.0
-
-        try:
-            while self.state == DaemonState.RECORDING:
-                # 1. Check Buffer Duration
-                buffer_size = self.audio_streamer.get_current_buffer().shape[0]
-                current_audio_duration = buffer_size / self.audio_streamer.samplerate
-
-                # Wait for initial 15s
-                if current_audio_duration < warmup_seconds:
-                    self.hud.update_text(
-                        f"Buffering... {current_audio_duration:.1f}s / {warmup_seconds}s"
-                    )
-                    await asyncio.sleep(1.0)
-                    continue
-
-                # 2. Adaptive Wait: Every 5 seconds
-                await asyncio.sleep(self.interval)
-
-                async with self._interactive_lock:
-                    if self.state != DaemonState.RECORDING:
-                        break
-
-                    # 3. Get Rolling Window (Last 10s)
-                    audio_data = self.audio_streamer.get_rolling_window(
-                        seconds=window_seconds
-                    )
-                    if audio_data.size == 0:
-                        continue
-
-                    # 4. Prompt with FULL Context
-                    # We ask the model to provide the UPDATED full text of the session.
-                    instruction = (
-                        "You are a real-time transcription assistant. "
-                        f"So far, you have transcribed: '{self.current_session_text}'. "
-                        "The following 10 seconds of audio continues the session with some overlap. "
-                        "Provide the FULL, UPDATED transcription of the session so far. "
-                        "IMPORTANT: Make sure the existing prefix of the text stays the same or as similar as possible. "
-                        "Return ONLY the updated full transcription."
-                    )
-
-                    try:
-                        response = await self.api_client.transcribe(
-                            audio_data=audio_data,
-                            samplerate=self.audio_streamer.samplerate,
-                            model=self.config.api_model,
-                            instruction=instruction,
-                            response_model=BatchResponse,
-                        )
-                        updated_full_text = self.typer.filter_text(response.full_text)
-                        self.console.print(
-                            f"[dim]Interactive Window Update: '{updated_full_text}'[/]"
-                        )
-                    except Exception as e:
-                        self.console.print(f"[yellow]API error: {e}[/]")
-                        continue
-
-                    if not updated_full_text:
-                        continue
-
-                    # 5. UI Update and Physical Typing using type_diff
-                    # type_diff handles LCP and only types the difference.
-                    if updated_full_text != self.current_session_text:
-                        self.hud.update_text(updated_full_text)
-                        if not self.pause_typing:
-                            self._release_modifiers()
-                            # Synchronize physical keyboard with the model's new full state
-                            self.typer.type_diff(
-                                self.current_session_text, updated_full_text
-                            )
-                            self.current_session_text = updated_full_text
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            self.console.print(f"[bold red]Error in interactive loop: {e}[/]")
-        finally:
-            self.hud.hide()
 
     async def _stop_recording(self) -> None:
         """
@@ -252,15 +138,6 @@ class HarpoDaemon:
         """
         if self.state == DaemonState.RECORDING:
             self.state = DaemonState.PROCESSING
-
-            # Cancel interactive task
-            if self._interactive_task:
-                self._interactive_task.cancel()
-                try:
-                    await self._interactive_task
-                except asyncio.exceptions.CancelledError:
-                    pass
-                self._interactive_task = None
 
             audio_data = self.audio_streamer.stop_recording()
             self.console.print("[bold blue]idle[/]")
@@ -296,21 +173,18 @@ class HarpoDaemon:
                         await asyncio.sleep(0.5)
                         self._release_modifiers()
 
-                        # Final reconciliation with interactive text using type_diff
+                        # Final filtering and typing
                         filtered_final = self.typer.filter_text(transcription)
 
-                        if filtered_final != self.current_session_text:
-                            status.update("[bold cyan]Finalizing transcription...[/]")
-                            self.typer.type_diff(
-                                self.current_session_text, filtered_final
-                            )
+                        if filtered_final:
+                            status.update("[bold cyan]Typing transcription...[/]")
+                            self.typer.type_text(filtered_final)
 
                     except Exception as e:
                         error_msg = f"Transcription or typing failed: {e}"
                         self.console.print(f"[bold red]{error_msg}[/]")
                         self._notify("Error", error_msg)
 
-            self.current_session_text = ""
             self.state = DaemonState.IDLE
 
     async def _toggle_state(self) -> None:
@@ -488,12 +362,6 @@ class HarpoDaemon:
         """
         Ensures all devices are ungrabbed and uinput is closed.
         """
-        if self.hud:
-            try:
-                self.hud.stop()
-            except Exception:
-                pass
-
         if self._keyboard_listener:
             try:
                 self._keyboard_listener.stop()

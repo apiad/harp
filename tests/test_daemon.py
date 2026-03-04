@@ -32,7 +32,6 @@ def test_daemon_initialization(daemon: HarpoDaemon) -> None:
     assert daemon.state == DaemonState.IDLE
     assert daemon.toggle is True
     assert daemon.full_mode is True
-    assert daemon.interactive is False
 
 
 @patch("subprocess.run")
@@ -132,4 +131,3 @@ async def test_stop_recording_no_data(daemon: HarpoDaemon) -> None:
 
     assert daemon.state == DaemonState.IDLE
     daemon.audio_streamer.stop_recording.assert_called_once()
-    assert daemon.current_session_text == ""

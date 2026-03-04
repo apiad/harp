@@ -45,7 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI options: `--toggle` for state switching and `--full` for opt-in symbol typing.
 - Beautified CLI using `Rich` with spinners, colors, and transcription panels.
 - GitHub Actions workflows for automated CI (tests/lint matrix) and CD (PyPI).
-- Experimental Interactive Mode for real-time transcription (currently marked as broken).
 
 ### Changed
 - Refined device discovery to target only physical keyboard devices.

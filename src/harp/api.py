@@ -14,20 +14,6 @@ from pydantic import BaseModel, Field
 T = TypeVar("T", bound=BaseModel)
 
 
-class InteractiveResponse(BaseModel):
-    """
-    Structured response for interactive transcription deltas.
-    """
-
-    delta_text: str = Field(
-        default="", description="The newly transcribed text since the last context."
-    )
-    is_final: bool = Field(
-        default=False,
-        description="Whether this segment is considered final or interim.",
-    )
-
-
 class BatchResponse(BaseModel):
     """
     Structured response for full transcription.
