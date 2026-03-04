@@ -63,7 +63,7 @@ sudo chmod 666 /dev/uinput
 ```
 2.  **API Configuration**: Harp requires an API key for a provider that supports native audio input. Create a `.env` file in your home or project directory:
 
-```env
+```toml
 HARP_API_KEY=your_api_key_here
 
 # Optional: Override the default provider (OpenRouter)
@@ -71,6 +71,7 @@ HARP_API_BASE_URL=https://openrouter.ai/api/v1
 HARP_API_MODEL=google/gemini-2.5-flash
 ```
 *Note: If you change the `HARP_API_BASE_URL`, ensure the provider supports the OpenAI SDK's Chat Completions interface with `input_audio` format.*
+
 3.  **Dependencies**: Ensure `libportaudio2` and `xclip` or `wl-clipboard` (for `pyperclip` support on Linux) are installed on your system.
 
 ```bash
