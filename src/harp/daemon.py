@@ -3,11 +3,13 @@ Core logic for managing states and the background daemon loop.
 """
 
 import asyncio
+import re
 import subprocess
 import time
 from enum import Enum, auto
 
 import evdev
+import pyperclip
 from pynput import keyboard
 from rich.console import Console
 from rich.status import Status
@@ -39,6 +41,9 @@ class HarpoDaemon:
         device_path: str | None = None,
         toggle: bool = False,
         full_mode: bool = False,
+        clipboard: bool = False,
+        tokens: int = 500,
+        to_clipboard: bool = False,
     ) -> None:
         """
         Initializes the HarpoDaemon with its components and state.
@@ -47,10 +52,16 @@ class HarpoDaemon:
             device_path: Optional path or name of the device to grab.
             toggle: Whether to toggle state on keypress.
             full_mode: Whether to type all characters or just a safe set.
+            clipboard: Whether to send clipboard content as context.
+            tokens: The number of words to include from clipboard.
+            to_clipboard: Whether to copy final transcription to clipboard.
         """
         self.device_path: str | None = device_path
         self.toggle: bool = toggle
         self.full_mode: bool = full_mode
+        self.clipboard: bool = clipboard
+        self.tokens: int = tokens
+        self.to_clipboard: bool = to_clipboard
 
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
@@ -98,6 +109,46 @@ class HarpoDaemon:
             message: The message body of the notification.
         """
         subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "1000"])
+
+    def _get_clipboard_context(self) -> str | None:
+        """
+        Reads the clipboard and returns the last self.tokens words.
+        Attempts to cut at a sentence boundary.
+        """
+        try:
+            text = pyperclip.paste()
+            if not text:
+                return None
+
+            # Split by whitespace, preserving it
+            tokens = re.split(r"(\s+)", text)
+
+            word_tokens = [t for t in tokens if t.strip()]
+            if len(word_tokens) <= self.tokens:
+                return text.strip()
+
+            words_found = 0
+            start_index = 0
+            for i in range(len(tokens) - 1, -1, -1):
+                if tokens[i].strip():
+                    words_found += 1
+                if words_found == self.tokens:
+                    start_index = i
+                    break
+
+            truncated = "".join(tokens[start_index:]).lstrip()
+
+            # Look for sentence boundary: punctuation followed by space and uppercase
+            match = re.search(r"[.!?]\s+([A-Z])", truncated)
+            if match:
+                # Cut at the start of the uppercase letter
+                return truncated[match.start(1) :]
+            else:
+                return f"[...] {truncated}"
+
+        except Exception as e:
+            self.console.print(f"[yellow]Failed to read clipboard: {e}[/]")
+            return None
 
     def _release_modifiers(self) -> None:
         """
@@ -147,10 +198,26 @@ class HarpoDaemon:
                 with self.console.status("[bold blue]Transcribing...[/]") as status:
                     try:
                         instruction = (
-                            "Listen to the following audio and reply whatever it says."
+                            "Listen to the following audio. It contains a command or instruction. "
+                            "Execute the command or follow the instruction and provide ONLY the result. "
+                            "Do NOT transcribe the audio, do NOT acknowledge the request, just output the final result."
                             if self._is_command_mode
                             else "Transcribe this audio exactly."
                         )
+
+                        if self._is_command_mode and self.clipboard:
+                            context = self._get_clipboard_context()
+                            if context:
+                                instruction += f"\n\nHere is some context from the user's clipboard to help you understand the command or what to operate on:\n<context>\n{context}\n</context>"
+
+                        self.console.print(
+                            Panel(
+                                f"[dim]{instruction}[/dim]",
+                                title="[cyan]Instruction Sent to Model[/]",
+                                border_style="cyan",
+                            )
+                        )
+
                         response = await self.api_client.transcribe(
                             audio_data=audio_data,
                             samplerate=self.audio_streamer.samplerate,
@@ -168,6 +235,17 @@ class HarpoDaemon:
                                 border_style="cyan",
                             )
                         )
+
+                        if self.to_clipboard:
+                            try:
+                                pyperclip.copy(transcription)
+                                self.console.print(
+                                    "[bold green]Copied transcription to clipboard![/]"
+                                )
+                            except Exception as e:
+                                self.console.print(
+                                    f"[yellow]Failed to copy to clipboard: {e}[/]"
+                                )
 
                         # Wait a bit for the user to release physical keys
                         await asyncio.sleep(0.5)
