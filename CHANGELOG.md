@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-04
+
+### Added
+- **Clipboard Context**: Command Mode now reads the clipboard (`--clipboard`) to send contextual data to the LLM (configurable via `--tokens`).
+- **Auto-Copy**: Added an option (`--to-clipboard`) to automatically copy the final transcription or command result to the system clipboard.
+- **Audio Feedback**: Added generated audio chimes (high pitch for start, low pitch for stop) when toggling recording.
+- **System Notifications**: Added desktop notifications (`notify-send`) when the prompt is sent to the LLM and when transcription is ready.
+
+### Changed
+- Increased transcription similarity threshold to 95% in end-to-end integration tests.
+- Updated README to explicitly clarify support for any multimodal LLM provider with native audio input, and documented API environment variables.
+
+### Removed
+- Removed the experimental interactive mode (and its associated HUD) entirely, shifting focus to a highly stable batch-only architecture.
+
 ## [0.2.3] - 2026-03-03
 
 ### Added

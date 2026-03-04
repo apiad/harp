@@ -1,6 +1,6 @@
 # Harp 🎵
 
-[![Version](https://img.shields.io/badge/version-v0.2.3-blue.svg)](https://github.com/apiad/harp/releases/tag/v0.2.3)
+[![Version](https://img.shields.io/badge/version-v0.3.0-blue.svg)](https://github.com/apiad/harp/releases/tag/v0.3.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/apiad/harp/actions/workflows/ci.yml/badge.svg)](https://github.com/apiad/harp/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
