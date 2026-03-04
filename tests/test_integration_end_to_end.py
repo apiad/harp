@@ -76,6 +76,6 @@ async def test_transcription_accuracy():
     print(f"Original: {original_text[:100]}...")
     print(f"Transcribed: {transcribed_text[:100]}...")
 
-    assert similarity >= 65, (
-        f"Transcription similarity ({similarity}%) is below 65% threshold."
+    assert similarity >= 95, (
+        f"Transcription similarity ({similarity}%) is below 95% threshold."
     )
