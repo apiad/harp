@@ -21,21 +21,30 @@ class HarpConfig(BaseSettings):
         extra="ignore",
     )
 
-    # API Settings
-    api_key: str = Field(default="", description="OpenRouter API key")
-    api_base_url: str = Field(
-        default="https://openrouter.ai/api/v1", description="API base URL"
+    # Local STT (Whisper) Settings
+    local_model: str = Field(
+        default="base", description="Local Whisper model to use (e.g., base, small)"
     )
-    api_model: str = Field(
-        default="google/gemini-2.0-flash", description="AI model to use"
+    local_device: str = Field(
+        default="auto", description="Device for local STT (cpu, cuda, auto)"
+    )
+    local_compute_type: str = Field(
+        default="int8", description="Compute type for local STT (int8, float16)"
+    )
+
+    # LLM (Post-processing) Settings
+    llm_api_key: str = Field(default="", description="OpenAI-compatible API key")
+    llm_base_url: str = Field(
+        default="https://openrouter.ai/api/v1", description="LLM API base URL"
+    )
+    llm_model: str = Field(
+        default="google/gemini-2.0-flash", description="LLM model to use"
     )
 
     # Output Modes
-    type_result: bool = Field(
-        default=False, alias="type", description="Type the result"
-    )
+    type_result: bool = Field(default=True, alias="type", description="Type the result")
     copy_result: bool = Field(
-        default=False, alias="copy", description="Copy the result to clipboard"
+        default=True, alias="copy", description="Copy the result to clipboard"
     )
     send_clipboard: int = Field(
         default=0, description="Tokens to send from clipboard in command mode"

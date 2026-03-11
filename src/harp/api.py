@@ -1,116 +1,62 @@
 """
-OpenRouter API integration for STT using Chat Completions with Audio Input.
+LLM integration for post-processing and command mode.
 """
 
-import base64
-import io
-import wave
-from typing import Type, TypeVar
-
-import numpy as np
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field
-
-T = TypeVar("T", bound=BaseModel)
 
 
-class BatchResponse(BaseModel):
+class LLMClient:
     """
-    Structured response for full transcription.
-    """
-
-    full_text: str = Field(default="", description="The complete transcribed text.")
-
-
-class CommandResponse(BaseModel):
-    """
-    Structured response for command execution requests.
-    """
-
-    action: str = Field(description="The action to perform.")
-    parameters: dict = Field(default_factory=dict, description="Action parameters.")
-
-
-class OpenRouterClient:
-    """
-    Client for interacting with OpenRouter models that support audio input.
+    Client for interacting with OpenAI-compatible LLM APIs.
     """
 
     def __init__(
         self, api_key: str, base_url: str = "https://openrouter.ai/api/v1"
     ) -> None:
         """
-        Initializes the OpenRouterClient.
+        Initializes the LLMClient.
 
         Args:
-            api_key: The OpenRouter API key.
-            base_url: The OpenRouter API base URL.
+            api_key: The API key.
+            base_url: The API base URL.
         """
         self.client: AsyncOpenAI = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    async def transcribe(
+    async def process_text(
         self,
-        audio_data: np.ndarray,
-        samplerate: int,
+        text: str,
+        instruction: str,
         model: str,
-        instruction: str = "Transcribe this audio exactly.",
-        response_model: Type[T] = BatchResponse,
-    ) -> T:
+    ) -> str:
         """
-        Sends audio data to OpenRouter for transcription using Chat Completions with Structured Output.
+        Sends text to the LLM for post-processing or command execution.
 
         Args:
-            audio_data: The audio payload as a float32 numpy array.
-            samplerate: The sample rate of the audio data.
-            model: The multimodal model to use (e.g., openai/gpt-4o-audio-preview).
+            text: The transcribed text.
             instruction: The instruction to give to the model.
-            response_model: The Pydantic model to parse the response into.
+            model: The LLM model to use.
 
         Returns:
-            The parsed Pydantic model.
+            The processed text from the LLM.
         """
-        if audio_data.size == 0:
-            return response_model()
+        if not text:
+            return ""
 
-        # 1. Convert float32 [-1.0, 1.0] to int16
-        audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
-
-        # 2. Write to in-memory WAV buffer
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)  # 2 bytes for int16
-            wf.setframerate(samplerate)
-            wf.writeframes(audio_int16.tobytes())
-
-        buffer.seek(0)
-        # 3. Encode to Base64
-        base64_audio = base64.b64encode(buffer.read()).decode("utf-8")
-
-        # 4. Call OpenRouter Chat Completions API with Structured Output
         try:
-            # We use the standard 'parse' method from openai-python for Pydantic support
-            completion = await self.client.beta.chat.completions.parse(
+            completion = await self.client.chat.completions.create(
                 model=model,
                 messages=[
                     {
+                        "role": "system",
+                        "content": instruction,
+                    },
+                    {
                         "role": "user",
-                        "content": [
-                            {"type": "text", "text": instruction},
-                            {
-                                "type": "input_audio",
-                                "input_audio": {"data": base64_audio, "format": "wav"},
-                            },
-                        ],
-                    }
+                        "content": text,
+                    },
                 ],
-                # Pass the Pydantic model directly
-                response_format=response_model,
             )
-            parsed = completion.choices[0].message.parsed
-            if parsed is None:
-                raise ValueError("Failed to parse response into model.")
-            return parsed
+            return completion.choices[0].message.content or ""
         except Exception as e:
-            print(f"Transcription error: {e}")
+            print(f"LLM processing error: {e}")
             raise e

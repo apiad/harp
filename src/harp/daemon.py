@@ -7,6 +7,7 @@ import re
 import subprocess
 import time
 from enum import Enum, auto
+from typing import Optional
 
 import evdev
 import numpy as np
@@ -17,10 +18,11 @@ from rich.console import Console
 from rich.status import Status
 from rich.panel import Panel
 
-from harp.api import BatchResponse, OpenRouterClient
+from harp.api import LLMClient
 from harp.audio import AudioStreamer
 from harp.config import HarpConfig
 from harp.input import WaylandTyper
+from harp.whisper import LocalWhisperEngine
 
 
 class DaemonState(Enum):
@@ -63,11 +65,21 @@ class HarpDaemon:
         self.console = Console()
         self._status: Status | None = None
 
-        # Initialize API client
-        self.api_client = OpenRouterClient(
-            api_key=self.config.api_key,
-            base_url=self.config.api_base_url,
+        # Initialize Engines
+        self.whisper_engine = LocalWhisperEngine(
+            model_size=self.config.local_model,
+            device=self.config.local_device,
+            compute_type=self.config.local_compute_type,
         )
+
+        self.llm_client = LLMClient(
+            api_key=self.config.llm_api_key,
+            base_url=self.config.llm_base_url,
+        )
+
+        # Background Transcription Task
+        self._transcription_task: Optional[asyncio.Task] = None
+        self._latest_transcription: str = ""
 
     @property
     def pause_typing(self) -> bool:
@@ -93,7 +105,6 @@ class HarpDaemon:
         # Truncate message to avoid huge notifications
         if len(message) > 200:
             message = message[:197] + "..."
-        # Escape quotes for bash safety when using subprocess if needed, but array handles it.
         subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "3000"])
 
     def _play_chime(self, start: bool) -> None:
@@ -183,14 +194,44 @@ class HarpDaemon:
             self._uinput_device.write(evdev.ecodes.EV_KEY, mod, 0)
         self._uinput_device.syn()
 
+    async def _background_transcription_loop(self) -> None:
+        """
+        Periodically transcribes the current audio buffer in the background.
+        """
+        while self.state == DaemonState.RECORDING:
+            await asyncio.sleep(0.5)
+
+            # Use current buffer
+            audio_data = self.audio_streamer.get_current_buffer()
+            if audio_data.size == 0:
+                continue
+
+            # Run transcription in a separate thread to avoid blocking the loop
+            try:
+                loop = asyncio.get_event_loop()
+                transcription = await loop.run_in_executor(
+                    None, self.whisper_engine.transcribe, audio_data.flatten()
+                )
+                self._latest_transcription = transcription
+            except Exception:
+                # Silently ignore background errors
+                pass
+
     def _start_recording(self) -> None:
         """
         Transitions to RECORDING and starts audio capture.
         """
         if self.state == DaemonState.IDLE:
+            self._latest_transcription = ""
             self.state = DaemonState.RECORDING
             self._play_chime(start=True)
             self.audio_streamer.start_recording()
+
+            # Start background transcription
+            self._transcription_task = asyncio.create_task(
+                self._background_transcription_loop()
+            )
+
             mode_str = "command" if self._is_command_mode else "capturing"
             self.console.print(f"[bold green]{mode_str}...[/]")
             self._notify("Status", mode_str)
@@ -203,50 +244,61 @@ class HarpDaemon:
             self.state = DaemonState.PROCESSING
             self._play_chime(start=False)
 
+            # Cancel background task and get final audio
+            if self._transcription_task:
+                self._transcription_task.cancel()
+
             audio_data = self.audio_streamer.stop_recording()
             self.console.print("[bold blue]idle[/]")
             self._notify("Status", "idle")
 
             if audio_data.size > 0:
-                with self.console.status("[bold blue]Transcribing...[/]") as status:
+                with self.console.status(
+                    "[bold blue]Finalizing transcription...[/]"
+                ) as status:
                     try:
-                        instruction = (
-                            self.config.command_prompt
-                            if self._is_command_mode
-                            else self.config.transcribe_prompt
+                        # Perform final transcription of the full buffer
+                        # We use run_in_executor to keep UI responsive
+                        loop = asyncio.get_running_loop()
+                        transcription = await loop.run_in_executor(
+                            None, self.whisper_engine.transcribe, audio_data.flatten()
                         )
 
-                        if self._is_command_mode and self.config.send_clipboard > 0:
-                            context = self._get_clipboard_context(
-                                self.config.send_clipboard
+                        if not transcription:
+                            transcription = self._latest_transcription
+
+                        if self._is_command_mode:
+                            instruction = self.config.command_prompt
+
+                            if self.config.send_clipboard > 0:
+                                context = self._get_clipboard_context(
+                                    self.config.send_clipboard
+                                )
+                                if context:
+                                    instruction += f"\n\nHere is context from clipboard:\n<context>\n{context}\n</context>"
+
+                            self.console.print(
+                                Panel(
+                                    f"[dim]{instruction}[/dim]",
+                                    title="[cyan]Instruction[/]",
+                                    border_style="cyan",
+                                )
                             )
-                            if context:
-                                instruction += f"\n\nHere is some context from the user's clipboard to help you understand the command or what to operate on:\n<context>\n{context}\n</context>"
 
-                        self.console.print(
-                            Panel(
-                                f"[dim]{instruction}[/dim]",
-                                title="[cyan]Instruction Sent to Model[/]",
-                                border_style="cyan",
+                            status.update(
+                                "[bold blue]Processing command with LLM...[/]"
                             )
-                        )
-                        self._notify("Sent to LLM", instruction)
-
-                        response = await self.api_client.transcribe(
-                            audio_data=audio_data,
-                            samplerate=self.audio_streamer.samplerate,
-                            model=self.config.api_model,
-                            instruction=instruction,
-                            response_model=BatchResponse,
-                        )
-
-                        transcription = response.full_text
+                            transcription = await self.llm_client.process_text(
+                                text=transcription,
+                                instruction=instruction,
+                                model=self.config.llm_model,
+                            )
 
                         # ALWAYS print to CLI
                         self.console.print(
                             Panel(
                                 f"[italic green]{transcription}[/]",
-                                title="[bold cyan]Transcription[/]",
+                                title="[bold cyan]Result[/]",
                                 border_style="cyan",
                             )
                         )
@@ -256,23 +308,18 @@ class HarpDaemon:
                             try:
                                 pyperclip.copy(transcription)
                                 self.console.print(
-                                    "[bold green]Copied transcription to clipboard![/]"
+                                    "[bold green]Copied to clipboard![/]"
                                 )
                             except Exception as e:
-                                self.console.print(
-                                    f"[yellow]Failed to copy to clipboard: {e}[/]"
-                                )
+                                self.console.print(f"[yellow]Failed to copy: {e}[/]")
 
-                        # Wait a bit for the user to release physical keys
                         await asyncio.sleep(0.5)
                         self._release_modifiers()
 
-                        # Final filtering and typing
                         if self.config.type_result:
                             filtered_final = self.typer.filter_text(transcription)
-
                             if filtered_final:
-                                status.update("[bold cyan]Typing transcription...[/]")
+                                status.update("[bold cyan]Typing result...[/]")
                                 self.typer.type_text(filtered_final)
 
                     except Exception as e:
@@ -300,18 +347,15 @@ class HarpDaemon:
         """
         try:
             async for event in device.async_read_loop():
-                # Only handle keyboard events
                 if event.type == evdev.ecodes.EV_KEY:
                     key_event = evdev.categorize(event)
                     scancode = key_event.scancode
 
-                    # Update state
                     if key_event.keystate == evdev.KeyEvent.key_down:
                         self._keys_pressed.add(scancode)
                     elif key_event.keystate == evdev.KeyEvent.key_up:
                         self._keys_pressed.discard(scancode)
 
-                    # Check for Ctrl + Space
                     is_ctrl = (
                         evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed
                         or evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed
@@ -326,12 +370,10 @@ class HarpDaemon:
 
                     if is_ctrl and is_space:
                         if self.state == DaemonState.IDLE:
-                            # Update mode based on Shift key
                             self._is_command_mode = is_shift
 
                         self._release_modifiers()
 
-                        # Mark current keys (Ctrl, Shift, Space) for suppression
                         if evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed:
                             self._suppressed_keys.add(evdev.ecodes.KEY_LEFTCTRL)
                         if evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed:
@@ -343,9 +385,7 @@ class HarpDaemon:
                         self._suppressed_keys.add(evdev.ecodes.KEY_SPACE)
 
                         if self.config.toggle:
-                            # Toggle on key down (initial press)
                             if key_event.keystate == evdev.KeyEvent.key_down:
-                                # Avoid repeat triggers if key is held
                                 if scancode == evdev.ecodes.KEY_SPACE:
                                     await self._toggle_state()
                         else:
@@ -359,22 +399,17 @@ class HarpDaemon:
                         ):
                             await self._stop_recording()
 
-                    # If the key is in suppression list, we continue to suppress it
-                    # until it is released.
                     if scancode in self._suppressed_keys:
                         should_suppress = True
                         if key_event.keystate == evdev.KeyEvent.key_up:
                             self._suppressed_keys.discard(scancode)
 
-                    # Passthrough if not suppressed
                     if not should_suppress and self._uinput_device:
                         self._uinput_device.write_event(event)
                 else:
-                    # Non-keyboard events (e.g. sync events) are passed through
                     if self._uinput_device:
                         self._uinput_device.write_event(event)
         except (asyncio.CancelledError, asyncio.InvalidStateError):
-            # This is expected during shutdown
             pass
 
     @staticmethod
@@ -386,7 +421,6 @@ class HarpDaemon:
         if "Harp Virtual" in device.name:
             return False
 
-        # Require "keyboard" in the name (case-insensitive)
         if "keyboard" not in device.name.lower():
             return False
 
@@ -394,16 +428,13 @@ class HarpDaemon:
         if evdev.ecodes.EV_KEY not in capabilities:
             return False
         keys = capabilities[evdev.ecodes.EV_KEY]
-        # Check if it has KEY_A through KEY_Z
         return all(k in keys for k in range(evdev.ecodes.KEY_A, evdev.ecodes.KEY_Z + 1))
 
     async def _main_loop(self) -> None:
         """
         The asynchronous main loop of the daemon.
         """
-        # 1. Device discovery
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-
         keyboards = [d for d in devices if self._is_real_keyboard(d)]
 
         if self.config.device:
@@ -414,13 +445,9 @@ class HarpDaemon:
             ]
 
         if not keyboards:
-            self.console.print(
-                "[bold red]No real keyboard devices found. Check permissions or /dev/input/.[/]"
-            )
+            self.console.print("[bold red]No keyboard found.[/]")
             return
 
-        # 2. Setup uinput
-        # Merge all key capabilities from keyboards to create virtual device
         all_keys = set()
         for k in keyboards:
             all_keys.update(k.capabilities().get(evdev.ecodes.EV_KEY, []))
@@ -431,12 +458,9 @@ class HarpDaemon:
                 name="Harp Virtual passthrough",
             )
         except (OSError, PermissionError):
-            self.console.print(
-                "[bold red]Error creating uinput device.[/] Run: [italic]sudo chmod 666 /dev/uinput[/] or [italic]sudo modprobe uinput[/]."
-            )
+            self.console.print("[bold red]Error creating uinput device.[/]")
             return
 
-        # 3. Grab keyboards
         self.console.print(f"[bold cyan]Listening on:[/] {[k.name for k in keyboards]}")
         for k in keyboards:
             try:
@@ -444,11 +468,10 @@ class HarpDaemon:
                 self._grabbed_devices.append(k)
             except PermissionError:
                 self.console.print(
-                    f"[bold red]Permission denied grabbing '{k.name}'.[/] Run: [italic]sudo usermod -aG input $USER[/]."
+                    f"[bold red]Permission denied grabbing '{k.name}'.[/]"
                 )
                 return
 
-        # 4. Start event handling
         try:
             await asyncio.gather(*(self._handle_events(k) for k in keyboards))
         except (asyncio.CancelledError, asyncio.InvalidStateError):
@@ -492,7 +515,6 @@ class HarpDaemon:
         asyncio.set_event_loop(loop)
 
         def exception_handler(loop, context):
-            # Ignore InvalidStateError during shutdown, common with evdev
             exception = context.get("exception")
             if isinstance(exception, asyncio.InvalidStateError):
                 return
@@ -503,15 +525,11 @@ class HarpDaemon:
         try:
             loop.run_until_complete(self._main_loop())
         except PermissionError:
-            self.console.print(
-                "[bold red]Permission denied accessing /dev/input/.[/] Run with sudo or add user to 'input' group."
-            )
+            self.console.print("[bold red]Permission denied accessing /dev/input/.[/]")
         except KeyboardInterrupt:
-            self.console.print("\n[bold yellow]Daemon stopped. Releasing devices...[/]")
-            # Cancel all running tasks
+            self.console.print("\n[bold yellow]Daemon stopped.[/]")
             for task in asyncio.all_tasks(loop):
                 task.cancel()
-            # Allow tasks to finish cancellation
             try:
                 loop.run_until_complete(
                     asyncio.gather(*asyncio.all_tasks(loop), return_exceptions=True)
