@@ -19,7 +19,8 @@ def daemon() -> HarpDaemon:
     with (
         patch("harp.daemon.AudioStreamer"),
         patch("harp.daemon.WaylandTyper"),
-        patch("harp.daemon.OpenRouterClient"),
+        patch("harp.daemon.LLMClient"),
+        patch("harp.daemon.LocalWhisperEngine"),
         patch("harp.daemon.HarpConfig"),
     ):
         from harp.config import HarpConfig
@@ -95,7 +96,8 @@ def test_is_real_keyboard(daemon: HarpDaemon) -> None:
     assert daemon._is_real_keyboard(mouse) is False
 
 
-def test_start_recording(daemon: HarpDaemon) -> None:
+@pytest.mark.asyncio
+async def test_start_recording(daemon: HarpDaemon) -> None:
     """
     Verifies state change and audio capture start.
     """

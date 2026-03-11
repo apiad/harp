@@ -2,12 +2,12 @@
 Asynchronous tests for the Harpo daemon.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
 
-from harp.api import BatchResponse
 from harp.daemon import DaemonState, HarpDaemon
 
 
@@ -19,7 +19,8 @@ def async_daemon() -> HarpDaemon:
     with (
         patch("harp.daemon.AudioStreamer"),
         patch("harp.daemon.WaylandTyper"),
-        patch("harp.daemon.OpenRouterClient"),
+        patch("harp.daemon.LLMClient"),
+        patch("harp.daemon.LocalWhisperEngine"),
         patch("harp.daemon.HarpConfig"),
     ):
         from harp.config import HarpConfig
@@ -55,8 +56,6 @@ async def test_handle_events_ctrl_space(async_daemon: HarpDaemon) -> None:
         # stop the loop by raising CancelledError or just finishing
         raise asyncio.CancelledError()
 
-    import asyncio
-
     mock_device.async_read_loop.return_value = mock_event_loop()
 
     # Run handler in a task
@@ -80,12 +79,42 @@ async def test_stop_recording_success(async_daemon: HarpDaemon) -> None:
     async_daemon.audio_streamer.stop_recording.return_value = np.array(
         [[0.1]], dtype=np.float32
     )
-    async_daemon.api_client.transcribe = AsyncMock(
-        return_value=BatchResponse(full_text="Final result")
-    )
+
+    # Mock whisper engine transcribe (called via executor)
+    async_daemon.whisper_engine.transcribe.return_value = "Final result"
+
+    # Mock typer
     async_daemon.typer.filter_text.side_effect = lambda x: x
 
     await async_daemon._stop_recording()
 
     assert async_daemon.state == DaemonState.IDLE
     async_daemon.typer.type_text.assert_called_with("Final result")
+
+
+@pytest.mark.asyncio
+async def test_stop_recording_command_mode(async_daemon: HarpDaemon) -> None:
+    """
+    Verifies command mode processing via LLMClient.
+    """
+    async_daemon.config.type_result = True
+    async_daemon._is_command_mode = True
+    async_daemon.state = DaemonState.RECORDING
+    async_daemon.audio_streamer.stop_recording.return_value = np.array(
+        [[0.1]], dtype=np.float32
+    )
+
+    # Mock whisper engine transcribe
+    async_daemon.whisper_engine.transcribe.return_value = "Run command"
+
+    # Mock LLM client
+    async_daemon.llm_client.process_text = AsyncMock(return_value="Command Output")
+
+    # Mock typer
+    async_daemon.typer.filter_text.side_effect = lambda x: x
+
+    await async_daemon._stop_recording()
+
+    assert async_daemon.state == DaemonState.IDLE
+    async_daemon.llm_client.process_text.assert_called_once()
+    async_daemon.typer.type_text.assert_called_with("Command Output")

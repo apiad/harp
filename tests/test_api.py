@@ -1,86 +1,71 @@
 """
-Tests for the OpenRouterClient.
+Tests for the LLMClient.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import numpy as np
 import pytest
 
-from harp.api import OpenRouterClient, BatchResponse
+from harp.api import LLMClient
 
 
 @pytest.fixture
-def api_client() -> OpenRouterClient:
+def llm_client() -> LLMClient:
     """
-    Provides a fresh OpenRouterClient instance.
+    Provides a fresh LLMClient instance.
     """
-    return OpenRouterClient(api_key="test_key", base_url="https://test.ai/v1")
+    return LLMClient(api_key="test_key", base_url="https://test.ai/v1")
 
 
-def test_api_initialization(api_client: OpenRouterClient) -> None:
+def test_llm_initialization(llm_client: LLMClient) -> None:
     """
     Verifies the client is initialized with correct parameters.
     """
-    assert api_client.client.api_key == "test_key"
-    assert str(api_client.client.base_url) == "https://test.ai/v1/"
+    assert llm_client.client.api_key == "test_key"
+    assert str(llm_client.client.base_url) == "https://test.ai/v1/"
 
 
 @pytest.mark.asyncio
-async def test_transcribe_empty_data(api_client: OpenRouterClient) -> None:
+async def test_process_text_empty_input(llm_client: LLMClient) -> None:
     """
-    Checks if transcribing empty data returns a default BatchResponse.
+    Checks if processing empty text returns an empty string.
     """
-    result = await api_client.transcribe(
-        np.array([], dtype=np.float32), 16000, "test-model"
-    )
-    assert isinstance(result, BatchResponse)
-    assert result.full_text == ""
+    result = await llm_client.process_text("", "instruction", "model")
+    assert result == ""
 
 
 @pytest.mark.asyncio
-@patch("base64.b64encode")
-@patch("wave.open")
-async def test_transcribe_success(
-    mock_wave_open: MagicMock, mock_b64encode: MagicMock, api_client: OpenRouterClient
-) -> None:
+async def test_process_text_success(llm_client: LLMClient) -> None:
     """
-    Verifies a successful transcription call.
+    Verifies a successful text processing call.
     """
-    # Setup mocks
-    mock_b64encode.return_value = b"dGVzdF9hdWRpbw=="
-    api_client.client.beta = MagicMock()
-    api_client.client.beta.chat = MagicMock()
-    api_client.client.beta.chat.completions = MagicMock()
-    api_client.client.beta.chat.completions.parse = AsyncMock()
+    llm_client.client.chat = MagicMock()
+    llm_client.client.chat.completions = MagicMock()
+    llm_client.client.chat.completions.create = AsyncMock()
 
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.parsed = BatchResponse(full_text="Success")
-    api_client.client.beta.chat.completions.parse.return_value = mock_response
+    mock_response.choices[0].message.content = "Success"
+    llm_client.client.chat.completions.create.return_value = mock_response
 
-    audio_data = np.array([0.1, -0.1], dtype=np.float32)
-
-    result = await api_client.transcribe(
-        audio_data, 16000, "test-model", "test-instruction"
+    result = await llm_client.process_text(
+        "test input", "test instruction", "test-model"
     )
 
-    assert result.full_text == "Success"
-    api_client.client.beta.chat.completions.parse.assert_called_once()
+    assert result == "Success"
+    llm_client.client.chat.completions.create.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_transcribe_error(api_client: OpenRouterClient) -> None:
+async def test_process_text_error(llm_client: LLMClient) -> None:
     """
     Checks if API errors are re-raised.
     """
-    api_client.client.beta = MagicMock()
-    api_client.client.beta.chat = MagicMock()
-    api_client.client.beta.chat.completions = MagicMock()
-    api_client.client.beta.chat.completions.parse = AsyncMock(
+    llm_client.client.chat = MagicMock()
+    llm_client.client.chat.completions = MagicMock()
+    llm_client.client.chat.completions.create = AsyncMock(
         side_effect=Exception("API Error")
     )
 
-    audio_data = np.array([0.1], dtype=np.float32)
     with pytest.raises(Exception, match="API Error"):
-        await api_client.transcribe(audio_data, 16000, "test-model")
+        await llm_client.process_text("test input", "test instruction", "test-model")
