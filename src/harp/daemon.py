@@ -105,7 +105,15 @@ class HarpDaemon:
         # Truncate message to avoid huge notifications
         if len(message) > 200:
             message = message[:197] + "..."
-        subprocess.run(["notify-send", "Harp", f"{title}: {message}", "-t", "3000"])
+        try:
+            subprocess.run(
+                ["notify-send", "Harp", f"{title}: {message}", "-t", "3000"],
+                check=False,
+                capture_output=True,
+            )
+        except FileNotFoundError:
+            # notify-send not available, ignore
+            pass
 
     def _play_chime(self, start: bool) -> None:
         """
