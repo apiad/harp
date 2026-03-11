@@ -2,20 +2,25 @@
 Unit tests for the Harpo daemon logic.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import evdev
 import numpy as np
 import pytest
 
-from harp.daemon import DaemonState, HarpDaemon
-
+if TYPE_CHECKING:
+    from harp.daemon import HarpDaemon
 
 @pytest.fixture
 def daemon() -> HarpDaemon:
     """
     Provides a fresh HarpDaemon instance with mocked components.
     """
+    from harp.daemon import DaemonState, HarpDaemon
+
     with (
         patch("harp.daemon.AudioStreamer"),
         patch("harp.daemon.WaylandTyper"),
@@ -33,6 +38,8 @@ def test_daemon_initialization(daemon: HarpDaemon) -> None:
     """
     Checks if the HarpDaemon initializes with correct flags.
     """
+    from harp.daemon import DaemonState
+
     assert daemon.state == DaemonState.IDLE
     assert daemon.config.toggle is True
     assert daemon.config.full_mode is True
@@ -101,6 +108,8 @@ async def test_start_recording(daemon: HarpDaemon) -> None:
     """
     Verifies state change and audio capture start.
     """
+    from harp.daemon import DaemonState
+
     daemon.console = MagicMock()
     daemon._notify = MagicMock()
     daemon.audio_streamer = MagicMock()
@@ -116,6 +125,8 @@ async def test_stop_recording_no_data(daemon: HarpDaemon) -> None:
     """
     Should just reset to IDLE if no audio data was captured.
     """
+    from harp.daemon import DaemonState
+
     daemon.audio_streamer.stop_recording.return_value = np.array([], dtype=np.float32)
     daemon.state = DaemonState.RECORDING
 
