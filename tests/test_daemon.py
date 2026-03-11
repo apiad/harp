@@ -14,12 +14,13 @@ import pytest
 if TYPE_CHECKING:
     from harp.daemon import HarpDaemon
 
+
 @pytest.fixture
 def daemon() -> HarpDaemon:
     """
     Provides a fresh HarpDaemon instance with mocked components.
     """
-    from harp.daemon import DaemonState, HarpDaemon
+    from harp.daemon import HarpDaemon
 
     with (
         patch("harp.daemon.AudioStreamer"),
