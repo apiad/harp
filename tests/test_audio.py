@@ -7,7 +7,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from harp.audio import AudioStreamer
+# Mock sounddevice before importing AudioStreamer
+with patch("sounddevice.InputStream"), patch("sounddevice.query_devices"):
+    from harp.audio import AudioStreamer
 
 
 @pytest.fixture
@@ -62,38 +64,34 @@ def test_get_current_buffer_empty(audio_streamer: AudioStreamer) -> None:
     assert full_buffer.dtype == np.float32
 
 
-@patch("sounddevice.InputStream")
-def test_start_stop_recording(
-    mock_input_stream: MagicMock, audio_streamer: AudioStreamer
-) -> None:
+def test_start_stop_recording(audio_streamer: AudioStreamer) -> None:
     """
     Verifies start and stop recording logic.
     """
-    mock_instance = mock_input_stream.return_value
+    with patch("sounddevice.InputStream") as mock_input_stream:
+        mock_instance = mock_input_stream.return_value
 
-    audio_streamer.start_recording()
-    assert mock_input_stream.called
-    assert audio_streamer._stream == mock_instance
-    mock_instance.start.assert_called_once()
+        audio_streamer.start_recording()
+        assert mock_input_stream.called
+        assert audio_streamer._stream == mock_instance
+        mock_instance.start.assert_called_once()
 
-    # Simulate some data
-    audio_streamer.audio_buffer = [np.array([0.5], dtype=np.float32)]
+        # Simulate some data
+        audio_streamer.audio_buffer = [np.array([0.5], dtype=np.float32)]
 
-    data = audio_streamer.stop_recording()
-    mock_instance.stop.assert_called_once()
-    mock_instance.close.assert_called_once()
-    assert audio_streamer._stream is None
-    assert audio_streamer.audio_buffer == []
-    assert data.size == 1
-    assert data[0] == 0.5
+        data = audio_streamer.stop_recording()
+        mock_instance.stop.assert_called_once()
+        mock_instance.close.assert_called_once()
+        assert audio_streamer._stream is None
+        assert audio_streamer.audio_buffer == []
+        assert data.size == 1
+        assert data[0] == 0.5
 
 
-@patch("sounddevice.InputStream", side_effect=Exception("Hardware failure"))
-def test_start_recording_error(
-    mock_input_stream: MagicMock, audio_streamer: AudioStreamer
-) -> None:
+def test_start_recording_error(audio_streamer: AudioStreamer) -> None:
     """
     Verifies error handling when starting audio fails (covers lines 50-52).
     """
-    audio_streamer.start_recording()
-    assert audio_streamer._stream is None
+    with patch("sounddevice.InputStream", side_effect=Exception("Hardware failure")):
+        audio_streamer.start_recording()
+        assert audio_streamer._stream is None

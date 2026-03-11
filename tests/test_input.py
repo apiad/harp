@@ -27,11 +27,12 @@ def test_typer_initial_state(typer: WaylandTyper) -> None:
     assert typer.device is not None
 
 
-@patch("uinput.Device", side_effect=OSError("Permission denied"))
+@patch("uinput.Device")
 def test_typer_init_error(mock_device: MagicMock) -> None:
     """
     Verifies error handling during initialization (covers lines 44-49).
     """
+    mock_device.side_effect = OSError("Permission denied")
     typer_obj = WaylandTyper()
     assert typer_obj.device is None
 
