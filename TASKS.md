@@ -17,6 +17,7 @@ Put done tasks into the Archive.
 ## Active Tasks
 
 ### UX & Customization
+- [/] Implement CLI overhaul and YAML configuration system (See plan: `plans/cli-overhaul-config.md`) (@apiad)
 - [ ] Configure custom hotkeys via .env or YAML (#5)
 - [ ] Support for multiple international keyboard layouts (ISO, etc.) (#13)
 

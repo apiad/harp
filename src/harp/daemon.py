@@ -19,7 +19,7 @@ from rich.panel import Panel
 
 from harp.api import BatchResponse, OpenRouterClient
 from harp.audio import AudioStreamer
-from harp.config import HarpoConfig
+from harp.config import HarpConfig
 from harp.input import WaylandTyper
 
 
@@ -38,33 +38,14 @@ class HarpoDaemon:
     Manages the lifecycle of the Harpo daemon.
     """
 
-    def __init__(
-        self,
-        device_path: str | None = None,
-        toggle: bool = False,
-        full_mode: bool = False,
-        clipboard: bool = False,
-        tokens: int = 500,
-        to_clipboard: bool = False,
-    ) -> None:
+    def __init__(self, config: HarpConfig) -> None:
         """
         Initializes the HarpoDaemon with its components and state.
 
         Args:
-            device_path: Optional path or name of the device to grab.
-            toggle: Whether to toggle state on keypress.
-            full_mode: Whether to type all characters or just a safe set.
-            clipboard: Whether to send clipboard content as context.
-            tokens: The number of words to include from clipboard.
-            to_clipboard: Whether to copy final transcription to clipboard.
+            config: The HarpConfig instance containing all settings.
         """
-        self.device_path: str | None = device_path
-        self.toggle: bool = toggle
-        self.full_mode: bool = full_mode
-        self.clipboard: bool = clipboard
-        self.tokens: int = tokens
-        self.to_clipboard: bool = to_clipboard
-
+        self.config = config
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
         self._suppressed_keys: set[int] = set()
@@ -72,7 +53,7 @@ class HarpoDaemon:
         self._uinput_device: evdev.UInput | None = None
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
-        self.typer = WaylandTyper(full_mode=full_mode)
+        self.typer = WaylandTyper(full_mode=config.full_mode)
 
         # State for safety listener
         self._last_user_typing_time: float = 0.0
@@ -82,8 +63,7 @@ class HarpoDaemon:
         self.console = Console()
         self._status: Status | None = None
 
-        # Load configuration and initialize API client
-        self.config = HarpoConfig()
+        # Initialize API client
         self.api_client = OpenRouterClient(
             api_key=self.config.api_key,
             base_url=self.config.api_base_url,
@@ -141,9 +121,9 @@ class HarpoDaemon:
         except Exception as e:
             self.console.print(f"[yellow]Failed to play chime: {e}[/]")
 
-    def _get_clipboard_context(self) -> str | None:
+    def _get_clipboard_context(self, tokens_to_get: int) -> str | None:
         """
-        Reads the clipboard and returns the last self.tokens words.
+        Reads the clipboard and returns the last `tokens_to_get` words.
         Attempts to cut at a sentence boundary.
         """
         try:
@@ -155,7 +135,7 @@ class HarpoDaemon:
             tokens = re.split(r"(\s+)", text)
 
             word_tokens = [t for t in tokens if t.strip()]
-            if len(word_tokens) <= self.tokens:
+            if len(word_tokens) <= tokens_to_get:
                 return text.strip()
 
             words_found = 0
@@ -163,7 +143,7 @@ class HarpoDaemon:
             for i in range(len(tokens) - 1, -1, -1):
                 if tokens[i].strip():
                     words_found += 1
-                if words_found == self.tokens:
+                if words_found == tokens_to_get:
                     start_index = i
                     break
 
@@ -231,15 +211,15 @@ class HarpoDaemon:
                 with self.console.status("[bold blue]Transcribing...[/]") as status:
                     try:
                         instruction = (
-                            "Listen to the following audio. It contains a command or instruction. "
-                            "Execute the command or follow the instruction and provide ONLY the result. "
-                            "Do NOT transcribe the audio, do NOT acknowledge the request, just output the final result."
+                            self.config.command_prompt
                             if self._is_command_mode
-                            else "Transcribe this audio exactly."
+                            else self.config.transcribe_prompt
                         )
 
-                        if self._is_command_mode and self.clipboard:
-                            context = self._get_clipboard_context()
+                        if self._is_command_mode and self.config.send_clipboard > 0:
+                            context = self._get_clipboard_context(
+                                self.config.send_clipboard
+                            )
                             if context:
                                 instruction += f"\n\nHere is some context from the user's clipboard to help you understand the command or what to operate on:\n<context>\n{context}\n</context>"
 
@@ -262,6 +242,7 @@ class HarpoDaemon:
 
                         transcription = response.full_text
 
+                        # ALWAYS print to CLI
                         self.console.print(
                             Panel(
                                 f"[italic green]{transcription}[/]",
@@ -271,7 +252,7 @@ class HarpoDaemon:
                         )
                         self._notify("Transcription Ready", transcription)
 
-                        if self.to_clipboard:
+                        if self.config.copy_result:
                             try:
                                 pyperclip.copy(transcription)
                                 self.console.print(
@@ -287,11 +268,12 @@ class HarpoDaemon:
                         self._release_modifiers()
 
                         # Final filtering and typing
-                        filtered_final = self.typer.filter_text(transcription)
+                        if self.config.type_result:
+                            filtered_final = self.typer.filter_text(transcription)
 
-                        if filtered_final:
-                            status.update("[bold cyan]Typing transcription...[/]")
-                            self.typer.type_text(filtered_final)
+                            if filtered_final:
+                                status.update("[bold cyan]Typing transcription...[/]")
+                                self.typer.type_text(filtered_final)
 
                     except Exception as e:
                         error_msg = f"Transcription or typing failed: {e}"
@@ -360,7 +342,7 @@ class HarpoDaemon:
                             self._suppressed_keys.add(evdev.ecodes.KEY_RIGHTSHIFT)
                         self._suppressed_keys.add(evdev.ecodes.KEY_SPACE)
 
-                        if self.toggle:
+                        if self.config.toggle:
                             # Toggle on key down (initial press)
                             if key_event.keystate == evdev.KeyEvent.key_down:
                                 # Avoid repeat triggers if key is held
@@ -371,7 +353,7 @@ class HarpoDaemon:
                         should_suppress = True
 
                     else:
-                        if not self.toggle and self.state == DaemonState.RECORDING:
+                        if not self.config.toggle and self.state == DaemonState.RECORDING:
                             await self._stop_recording()
 
                     # If the key is in suppression list, we continue to suppress it
@@ -421,11 +403,11 @@ class HarpoDaemon:
 
         keyboards = [d for d in devices if self._is_real_keyboard(d)]
 
-        if self.device_path:
+        if self.config.device:
             keyboards = [
                 k
                 for k in keyboards
-                if k.path == self.device_path or k.name == self.device_path
+                if k.path == self.config.device or k.name == self.config.device
             ]
 
         if not keyboards:
