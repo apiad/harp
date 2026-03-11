@@ -53,7 +53,7 @@ Harp can be configured via environment variables (prefixed with `HARP_`) or a `.
 # Local STT Settings
 local_model: "base"
 local_device: "auto"
-local_compute_type: "int8"
+local_compute_type: "default"
 
 # LLM Settings (for Command Mode)
 llm_api_key: "your_key"
@@ -62,8 +62,36 @@ llm_model: "google/gemini-2.0-flash"
 
 # Behavior
 toggle: false
-type: true
-copy: true
+type: false
+copy: false
+```
+
+## 🖥️ Hardware & GPU Acceleration
+
+Harp's local transcription engine (`faster-whisper`) is optimized for both CPU and NVIDIA GPU (CUDA) execution.
+
+### The `libcublas` Issue
+If you have an NVIDIA GPU but lack the necessary system libraries, you might see an error like:
+`RuntimeError: Library libcublas.so.12 is not found or cannot be loaded`
+
+This typically happens if the CUDA Toolkit 12 is not installed or not in your system path.
+
+### Automatic Fallback
+Harp is designed to be resilient. If it detects a failure in the GPU/CUDA backend or an unsupported quantization type (like `int8` on older CPUs), it will:
+1.  **Catch the error** during the first transcription pass.
+2.  **Log a warning** to your terminal.
+3.  **Automatically fall back** to `device="cpu"` and `compute_type="default"`.
+4.  **Reload the model** and complete your transcription without further intervention.
+
+### Manual CPU Mode
+If you wish to avoid GPU detection entirely (e.g., to save VRAM or power), you can force CPU mode in your `.harp.yaml`:
+```yaml
+local_device: "cpu"
+local_compute_type: "default"
+```
+Or via the CLI:
+```bash
+harp start --local-device cpu
 ```
 
 ## 🚀 Execution

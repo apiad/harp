@@ -32,6 +32,8 @@ The central coordinator. It manages the state machine:
 ### `LocalWhisperEngine`
 A high-performance wrapper around `faster-whisper`. It keeps the selected AI model (e.g., `base`) resident in memory to avoid load-time latency during recording.
 
+**Resiliency**: The engine includes a "fail-soft" mechanism. If a hardware backend (like CUDA) fails due to missing system libraries or incompatible hardware during the first inference pass, the engine automatically catches the error, logs a warning, and re-initializes itself on the CPU.
+
 ### `WaylandTyper`
 Handles the complexity of typing characters on Linux/Wayland. It supports:
 - **Safe Mode**: Only types alphanumeric characters to avoid accidental shortcut triggers.
