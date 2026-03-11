@@ -46,7 +46,7 @@ async def test_local_transcription_accuracy():
 
     # 3. Transcribe via Local Whisper
 
-    # Use 'base' for testing accuracy if available, otherwise 'tiny'
+    # Use 'base' for gold standard accuracy
     engine = LocalWhisperEngine(model_size="base", device="cpu", compute_type="int8")
 
     # Check if model exists, if not, skip or use tiny
@@ -57,7 +57,11 @@ async def test_local_transcription_accuracy():
             "No local Whisper models found. Run 'harp models download base' first."
         )
 
+    import time
+
+    start_time = time.time()
     transcribed_text = engine.transcribe(audio_data)
+    duration = time.time() - start_time
 
     # 4. Compare
     norm_original = normalize_text(original_text)
@@ -66,6 +70,7 @@ async def test_local_transcription_accuracy():
     similarity = fuzz.ratio(norm_original, norm_transcribed)
 
     print(f"\nSimilarity Score: {similarity}%")
+    print(f"Transcription Time: {duration:.2f}s")
     print(f"Original: {original_text[:100]}...")
     print(f"Transcribed: {transcribed_text[:100]}...")
 

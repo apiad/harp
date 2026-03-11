@@ -19,4 +19,4 @@ format:
 	@echo "Formatting code..."
 	uv run ruff format .
 
-check: lint test
+check: format lint test
