@@ -5,24 +5,33 @@
 [![CI](https://github.com/apiad/harp/actions/workflows/ci.yml/badge.svg)](https://github.com/apiad/harp/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-**Harp** is a powerful background daemon for Linux (specifically Wayland) that turns your voice into text, typed directly into any active window. Instead of traditional ASR engines like Whisper, Harp is designed to work with **any multimodal LLM provider that supports native audio input**. It comes pre-configured to use OpenRouter (specifically `google/gemini-2.5-flash`) for high-quality, fast transcription and intelligent command processing, but it can be easily configured to work with any OpenAI-compatible API.
+**Harp** is a powerful background daemon for Linux (specifically Wayland) that turns your voice into text, typed directly into any active window. Harp is now **local-first**, using `faster-whisper` for high-performance, private, and near-instant transcription. It can also be integrated with **any OpenAI-compatible LLM provider** for intelligent command processing and post-processing.
+
+## 📚 Documentation
+
+For in-depth information, please refer to our documentation:
+
+- [**CLI Reference**](docs/cli.md): Full guide to the `harp` command and its options.
+- [**Deployment & Setup**](docs/deploy.md): Detailed guide on permissions, dependencies, and configuration.
+- [**Internal Architecture**](docs/design.md): How Harp works under the hood.
+- [**Development Guide**](docs/develop.md): How to contribute and run tests.
 
 ## ✨ Features
-
+...
+- **Local-First Transcription**: Powered by `faster-whisper`, ensuring your voice data stays on your machine and transcription is lightning-fast.
+- **Concurrent Processing**: Harp transcribes your voice in the background *while* you speak, so the result is ready the moment you stop.
 - **Global Hotkey (`Ctrl + Space`)**: Instantly start and stop voice capture from anywhere.
 - **Direct Keyboard Emulation**: Transcribed text is typed automatically into your active application.
+- **Model Management CLI**: Easily download, list, and manage Whisper models (tiny, base, small, medium, large-v3) directly from the `harp` command.
 - **Multimodal Modes**:
     - **Transcription Mode**: Standard "Voice-to-Text" for typing emails, notes, or code.
-    - **Command Mode (`Ctrl + Shift + Space`)**: Send voice instructions to the LLM (e.g., "Summarize the previous paragraph") and get the response typed back.
+    - **Command Mode (`Ctrl + Shift + Space`)**: Send locally transcribed text to an LLM (e.g., "Summarize the previous paragraph") and get the response typed back.
 - **Flexible Operation**:
     - **Hold Mode**: Record while you hold the hotkey.
     - **Toggle Mode (`--toggle`)**: Click once to start, click again to stop.
 - **Clipboard Integration**:
-    - **Context Awareness (`--clipboard`)**: In Command Mode, Harp can read your clipboard and send the last 500 words (configurable) to the LLM to provide context (e.g., "Summarize the text I just copied").
-    - **Auto-Copy (`--to-clipboard`)**: Automatically copy the final transcribed text or command result directly to your clipboard for easy pasting elsewhere.
-- **Robust Typing**:
-    - Supports standard US-ASCII and Latin characters (tildes, ñ, etc.).
-    - **Safe Filtering**: By default, only types letters and numbers to avoid accidental shortcut triggers. Use `--full` to type everything.
+    - **Context Awareness**: In Command Mode, Harp can read your clipboard and send a configurable amount of text to the LLM to provide context.
+    - **Auto-Copy**: Automatically copy the final result directly to your clipboard.
 - **Modern CLI**: Beautiful terminal interface with colors, spinners, and panels powered by `Rich`.
 
 ## 🚀 Installation
@@ -61,21 +70,27 @@ sudo usermod -aG input $USER
 # You may also need to set udev rules for uinput or run:
 sudo chmod 666 /dev/uinput
 ```
-2.  **API Configuration**: Harp requires an API key for a provider that supports native audio input. Create a `.env` file in your home or project directory:
 
-```toml
-HARP_API_KEY=your_api_key_here
-
-# Optional: Override the default provider (OpenRouter)
-HARP_API_BASE_URL=https://openrouter.ai/api/v1
-HARP_API_MODEL=google/gemini-2.5-flash
-```
-*Note: If you change the `HARP_API_BASE_URL`, ensure the provider supports the OpenAI SDK's Chat Completions interface with `input_audio` format.*
-
-3.  **Dependencies**: Ensure `libportaudio2` and `xclip` or `wl-clipboard` (for `pyperclip` support on Linux) are installed on your system.
+2.  **Whisper Model**: Before starting for the first time, download a Whisper model.
 
 ```bash
-sudo apt install libportaudio2 xclip
+harp models download base
+```
+
+3.  **API Configuration (Optional)**: If you want to use Command Mode, Harp requires an OpenAI-compatible API key. Create a `.env` file in your home or project directory:
+
+```toml
+HARP_LLM_API_KEY=your_api_key_here
+
+# Optional: Override the default provider (OpenRouter)
+HARP_LLM_BASE_URL=https://openrouter.ai/api/v1
+HARP_LLM_MODEL=google/gemini-2.0-flash
+```
+
+4.  **Dependencies**: Ensure `libportaudio2` and `wl-clipboard` (for Wayland clipboard support) are installed.
+
+```bash
+sudo apt install libportaudio2 wl-clipboard
 ```
 
 ## ⌨️ Usage
@@ -83,32 +98,32 @@ sudo apt install libportaudio2 xclip
 Start the daemon using the CLI. By default, it runs in "Hold Mode" and only types safe characters.
 
 ```bash
-harp
+harp start
 ```
 
 ### Configuration & CLI Options
 
 You can customize Harp's behavior using the following flags:
 
-| Option            | Short | Description                                                                          | Use Case                                                                                                               |
-| :---------------- | :---- | :----------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------- |
-| `--device <path>` | `-d`  | Target a specific input device (e.g., `/dev/input/event0`).                          | Useful if you have multiple keyboards and only want to trigger Harp from one specific device.                          |
-| `--toggle`        | `-t`  | Enable toggle mode instead of hold mode.                                             | Press `Ctrl+Space` once to start recording, then press it again to stop and transcribe.                                |
-| `--full`          | `-f`  | Disable safe filtering and type all returned characters, including symbols.          | Essential when dictating code, complex punctuation, or URLs.                                                           |
-| `--clipboard`     | `-c`  | **Command Mode Only:** Send the current clipboard content as context to the LLM.     | Copy an email, press `Ctrl+Shift+Space`, and say "Draft a polite decline to this email."                               |
-| `--tokens <num>`  | `-n`  | Set the number of words to include when sending clipboard context. (Default: `500`)  | Use `--tokens 1000` to provide larger context documents without blowing up your API costs.                             |
-| `--to-clipboard`  | `-C`  | Automatically copy the final transcribed text (or command result) to your clipboard. | Dictate an idea, let Harp type it out, and also have it ready in your clipboard to paste into another app immediately. |
+| Option            | Short | Description                                                                         | Use Case                                                                                                                |
+| :---------------- | :---- | :---------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------- |
+| `--device <path>` | `-d`  | Target a specific input device (e.g., `/dev/input/event0`).                         | Useful if you have multiple keyboards and only want to trigger Harp from one specific device.                           |
+| `--toggle`        | `-t`  | Enable toggle mode instead of hold mode.                                            | Press `Ctrl+Space` once to start recording, then press it again to stop and transcribe.                               |
+| `--full`          | `-f`  | Disable safe filtering and type all returned characters, including symbols.         | Essential when dictating code, complex punctuation, or URLs.                                                            |
+| `--copy`          |       | Automatically copy the final transcribed text to your clipboard.                    | Dictate an idea, let Harp type it out, and also have it ready in your clipboard to paste elsewhere.                    |
+| `--send-clipboard`|       | **Command Mode Only:** Send a number of tokens from the clipboard as context to LLM. | Copy an email, press `Ctrl+Shift+Space`, and say "Draft a polite decline to this email."                                |
+| `--type`          |       | Enable typing the result (default: True).                                           | Disable with `harp start --no-type` if you only want to copy to clipboard.                                             |
 
 ### Examples
 
 **Programmer Mode:** Toggle recording, type all code symbols, and copy the result to clipboard.
 ```bash
-harp --toggle --full --to-clipboard
+harp start --toggle --full --copy
 ```
 
-**Contextual Assistant:** Use clipboard context and limit to the last 1000 words.
+**Contextual Assistant:** Use clipboard context and limit to the last 1000 tokens.
 ```bash
-harp --clipboard --tokens 1000
+harp start --send-clipboard 1000
 ```
 
 ## 🤝 Contributing
