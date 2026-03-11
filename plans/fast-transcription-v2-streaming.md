@@ -12,7 +12,7 @@ Reduce perceived and actual latency of Harpa's transcription by:
 ## Architectural Impact
 - **Network**: Replaces `openai` SDK with a custom `httpx.AsyncClient` utilizing HTTP/2 for multiplexing and connection persistence.
 - **Audio Pipeline**: Moves from batch PCM processing to a producer-consumer model using a background thread for Opus encoding.
-- **Concurrency**: The `HarpoDaemon` will manage an active `httpx` request task that runs in parallel with the audio capture loop.
+- **Concurrency**: The `HarpDaemon` will manage an active `httpx` request task that runs in parallel with the audio capture loop.
 - **Data Flow**: `Microphone -> PCM -> Opus (20ms frames) -> Base64 -> HTTP Generator -> OpenRouter`.
 
 ## File Operations
@@ -56,7 +56,7 @@ Reduce perceived and actual latency of Harpa's transcription by:
 - Set `provider.sticky: true` in the OpenRouter specific parameters to favor cache hits on the prefix.
 
 ### Step 5: Update `daemon.py` Logic
-- **`_start_recording`**: 
+- **`_start_recording`**:
   - Initialize the `AudioStreamer` with a queue.
   - Start the `api_client.stream_transcribe` task as a background `asyncio.Task`.
 - **Token Processing**:

@@ -11,7 +11,7 @@
 ## Root Cause Analysis
 
 ### 1. Ghost Modifiers (Stuck Ctrl)
-The `HarpoDaemon._handle_events` logic uses a suppression list (`_suppressed_keys`) to hide the hotkey from the system.
+The `HarpDaemon._handle_events` logic uses a suppression list (`_suppressed_keys`) to hide the hotkey from the system.
 - When the user presses `Ctrl`, it is **emitted** to the system because the hotkey isn't yet confirmed (Space is still up).
 - Once `Space` is pressed, the hotkey is confirmed, and both `Ctrl` and `Space` are added to `_suppressed_keys`.
 - When the user releases `Ctrl`, the "Up" event is **suppressed**.

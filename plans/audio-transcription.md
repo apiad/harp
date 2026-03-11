@@ -8,7 +8,7 @@ This plan outlines the steps to implement batch audio transcription for `harp` b
     - [ ] Add `AsyncOpenAI` from `openai` if not already present.
 - [ ] **Config Update (`src/harp/config.py`)**:
     - [ ] Import `load_dotenv` and call it at the module level.
-    - [ ] Update `HarpoConfig` to use the `HARP_` prefix:
+    - [ ] Update `HarpConfig` to use the `HARP_` prefix:
         - `HARP_API_KEY`
         - `HARP_API_BASE_URL` (Default: `https://openrouter.ai/api/v1`)
         - `HARP_API_MODEL` (Default: `openai/gpt-audio-mini`)
@@ -23,8 +23,8 @@ This plan outlines the steps to implement batch audio transcription for `harp` b
         - Return the resulting text.
 
 ## Phase 3: Daemon Integration (`src/harp/daemon.py`)
-- [ ] **Update `HarpoDaemon`**:
-    - [ ] Initialize `HarpoConfig` and `OpenRouterClient` in `__init__`.
+- [ ] **Update `HarpDaemon`**:
+    - [ ] Initialize `HarpConfig` and `OpenRouterClient` in `__init__`.
     - [ ] Refactor `_stop_recording(self)` to be **async**:
         - Transition state to `PROCESSING`.
         - Retrieve `audio_data` and call `await self.api_client.transcribe(...)`.

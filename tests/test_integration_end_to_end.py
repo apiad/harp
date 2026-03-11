@@ -10,7 +10,7 @@ from fuzzywuzzy import fuzz
 import string
 
 from harp.api import OpenRouterClient, BatchResponse
-from harp.config import HarpoConfig
+from harp.config import HarpConfig
 
 GROUND_TRUTH_TXT = "tests/assets/ground_truth.txt"
 GROUND_TRUTH_WAV = "tests/assets/ground_truth.wav"
@@ -50,7 +50,7 @@ async def test_transcription_accuracy():
         audio_data = audio_int16.astype(np.float32) / 32767.0
 
     # 3. Transcribe via Live API
-    config = HarpoConfig()
+    config = HarpConfig()
     if not config.api_key:
         pytest.fail("HARP_API_KEY not set in environment or .env")
 

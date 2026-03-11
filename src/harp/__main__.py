@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.syntax import Syntax
 
 from harp.config import find_config_file, load_config
-from harp.daemon import HarpoDaemon
+from harp.daemon import HarpDaemon
 
 app = typer.Typer(help="Harp: A Wayland daemon for voice transcription and commands.")
 console = Console()
@@ -62,7 +62,7 @@ def start(
     }
 
     config = load_config(overrides=overrides)
-    daemon = HarpoDaemon(config=config)
+    daemon = HarpDaemon(config=config)
     daemon.run()
 
 

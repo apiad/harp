@@ -4,7 +4,7 @@ This plan outlines the steps to fix the `^@` terminal pollution issue by impleme
 
 ## Phase 1: CLI and Configuration
 - [ ] Update `src/harp/__main__.py` to accept a `--device` / `-d` option for selecting a specific input device.
-- [ ] Pass the device selection to `HarpoDaemon`.
+- [ ] Pass the device selection to `HarpDaemon`.
 
 ## Phase 2: Interceptor Core (`src/harp/daemon.py`)
 - [ ] **Device Selection Logic**: Update `_main_loop` to filter devices based on name or path if provided.

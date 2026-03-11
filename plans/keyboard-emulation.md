@@ -15,7 +15,7 @@ This plan outlines the steps to implement keyboard emulation for `harp`, allowin
 
 ## Phase 2: Daemon Integration and Error Handling (`src/harp/daemon.py`)
 - [ ] **Integrate Typer**:
-    - [ ] Initialize `WaylandTyper` in `HarpoDaemon.__init__`.
+    - [ ] Initialize `WaylandTyper` in `HarpDaemon.__init__`.
     - [ ] Wrap the transcription and typing logic in `_stop_recording()` within a `try/except` block.
 - [ ] **Robust Feedback**:
     - [ ] If transcription returns an error or `type_text` fails, call `self._notify("Error", error_message)`.

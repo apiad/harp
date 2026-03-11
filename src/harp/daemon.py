@@ -25,7 +25,7 @@ from harp.input import WaylandTyper
 
 class DaemonState(Enum):
     """
-    Possible states for the Harpo daemon.
+    Possible states for the Harp daemon.
     """
 
     IDLE = auto()
@@ -33,14 +33,14 @@ class DaemonState(Enum):
     PROCESSING = auto()
 
 
-class HarpoDaemon:
+class HarpDaemon:
     """
-    Manages the lifecycle of the Harpo daemon.
+    Manages the lifecycle of the Harp daemon.
     """
 
     def __init__(self, config: HarpConfig) -> None:
         """
-        Initializes the HarpoDaemon with its components and state.
+        Initializes the HarpDaemon with its components and state.
 
         Args:
             config: The HarpConfig instance containing all settings.
@@ -353,7 +353,10 @@ class HarpoDaemon:
                         should_suppress = True
 
                     else:
-                        if not self.config.toggle and self.state == DaemonState.RECORDING:
+                        if (
+                            not self.config.toggle
+                            and self.state == DaemonState.RECORDING
+                        ):
                             await self._stop_recording()
 
                     # If the key is in suppression list, we continue to suppress it

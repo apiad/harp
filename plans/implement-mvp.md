@@ -8,7 +8,7 @@ This plan outlines the steps to implement a functional MVP for the `harp` backgr
 - [ ] (Manual Step) Ensure the user is in the `input` and `uinput` groups.
 
 ## Phase 2: Core Implementation (`src/harp/`)
-- [ ] **Notification Helper**: Implement a `_notify` method in `HarpoDaemon` using `subprocess` to call `notify-send`.
+- [ ] **Notification Helper**: Implement a `_notify` method in `HarpDaemon` using `subprocess` to call `notify-send`.
 - [ ] **Input Listener**:
     - Implement a device discovery mechanism to find keyboard devices in `/dev/input/`.
     - Use `evdev.AsyncInputDevice` to listen for key events.
@@ -18,7 +18,7 @@ This plan outlines the steps to implement a functional MVP for the `harp` backgr
     - Trigger "idle" (console + notification) when both are released.
 
 ## Phase 3: Integration and Testing
-- [ ] Update `src/harp/__main__.py` to correctly initialize and run the `HarpoDaemon` within an `asyncio` loop.
+- [ ] Update `src/harp/__main__.py` to correctly initialize and run the `HarpDaemon` within an `asyncio` loop.
 - [ ] Test the daemon by running `uv run harp` and verifying both console output and desktop notifications.
 - [ ] Handle permission errors (e.g., `PermissionError: [Errno 13] Permission denied: '/dev/input/eventX'`) gracefully with clear instructions for the user.
 

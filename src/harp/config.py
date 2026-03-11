@@ -2,7 +2,6 @@
 Configuration management for Harp.
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -27,10 +26,14 @@ class HarpConfig(BaseSettings):
     api_base_url: str = Field(
         default="https://openrouter.ai/api/v1", description="API base URL"
     )
-    api_model: str = Field(default="google/gemini-2.0-flash", description="AI model to use")
+    api_model: str = Field(
+        default="google/gemini-2.0-flash", description="AI model to use"
+    )
 
     # Output Modes
-    type_result: bool = Field(default=False, alias="type", description="Type the result")
+    type_result: bool = Field(
+        default=False, alias="type", description="Type the result"
+    )
     copy_result: bool = Field(
         default=False, alias="copy", description="Copy the result to clipboard"
     )
@@ -52,7 +55,9 @@ class HarpConfig(BaseSettings):
     )
 
     # UI/Behavior
-    toggle: bool = Field(default=False, description="Toggle recording state on keypress")
+    toggle: bool = Field(
+        default=False, description="Toggle recording state on keypress"
+    )
     full_mode: bool = Field(
         default=False, description="Type all characters including symbols"
     )

@@ -15,7 +15,7 @@ This plan outlines the steps to implement non-blocking audio capture in the `har
 
 ## Phase 2: Daemon Integration (`src/harp/daemon.py`)
 - [ ] **State Transition Refactoring**:
-    - [ ] Add `self.audio_streamer = AudioStreamer()` to `HarpoDaemon.__init__`.
+    - [ ] Add `self.audio_streamer = AudioStreamer()` to `HarpDaemon.__init__`.
     - [ ] Implement `_start_recording(self)` helper:
         - Transition to `RECORDING`.
         - Call `self.audio_streamer.start_recording()`.

@@ -8,7 +8,7 @@ Extend Harp to include two new clipboard-based features:
 ## Architectural Impact
 - **Dependencies**: Introduces `pyperclip` as a required dependency to handle cross-platform clipboard interactions.
 - **Core Loop Performance**: Clipboard reads/writes using `pyperclip` are technically synchronous, but since they are instantaneous operations on small strings, they will not noticeably block the asyncio event loop.
-- **Command Interfaces**: Adds three new optional parameters to the `start` CLI command (`--clipboard`, `--tokens`, `--to-clipboard`) and propagates them to the `HarpoDaemon` class.
+- **Command Interfaces**: Adds three new optional parameters to the `start` CLI command (`--clipboard`, `--tokens`, `--to-clipboard`) and propagates them to the `HarpDaemon` class.
 - **LLM Integration**: Dynamically augments the `instruction` prompt sent to the LLM during command mode.
 
 ## File Operations
@@ -38,15 +38,15 @@ The following files require modifications:
        False, "--to-clipboard", "-C", help="Copy final transcription to clipboard"
    ),
    ```
-3. Update the `HarpoDaemon` instantiation inside `start` to pass these new arguments.
+3. Update the `HarpDaemon` instantiation inside `start` to pass these new arguments.
 
 ### Step 3: Update Daemon State Initialization
 1. Open `src/harp/daemon.py`.
-2. Update the `HarpoDaemon.__init__` signature to accept `clipboard: bool = False`, `tokens: int = 500`, and `to_clipboard: bool = False`.
+2. Update the `HarpDaemon.__init__` signature to accept `clipboard: bool = False`, `tokens: int = 500`, and `to_clipboard: bool = False`.
 3. Save these values as instance variables (`self.clipboard = clipboard`, `self.tokens = tokens`, `self.to_clipboard = to_clipboard`).
 
 ### Step 4: Implement Clipboard Truncation Logic
-1. Inside `src/harp/daemon.py`, add a new private helper method `_get_clipboard_context(self) -> str | None` to the `HarpoDaemon` class.
+1. Inside `src/harp/daemon.py`, add a new private helper method `_get_clipboard_context(self) -> str | None` to the `HarpDaemon` class.
 2. In this method:
    - Wrap the logic in a `try...except` block to gracefully handle missing `pyperclip` or clipboard read failures.
    - Call `pyperclip.paste()`. Return `None` if the clipboard is empty.

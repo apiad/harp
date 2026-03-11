@@ -9,7 +9,7 @@ When the `harp` daemon is running, pressing the global hotkey (**Ctrl+Space**) c
 - **Environment:** Running `uv run harp` in a terminal emulator.
 
 ## Investigation Summary
-1.  **Lack of Input Grabbing:** The `HarpoDaemon` class initializes `evdev.InputDevice` objects but does not call `device.grab()`. This means that keyboard events are passed to both the daemon and the active application (the terminal).
+1.  **Lack of Input Grabbing:** The `HarpDaemon` class initializes `evdev.InputDevice` objects but does not call `device.grab()`. This means that keyboard events are passed to both the daemon and the active application (the terminal).
 2.  **Ctrl+Space Mapping:** In most Linux terminal emulators, the `Ctrl+Space` key combination is mapped to the ASCII NULL character (`\0`), which is visually represented as `^@`.
 
 ## Root Cause
