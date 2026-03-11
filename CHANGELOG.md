@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-11
+
+### Added
+- **Local-First Transcription**: Integrated `faster-whisper` for high-performance, private, and offline-capable transcription.
+- **Concurrent Background Processing**: Implemented a background transcription loop that processes audio *while* the user is speaking, reducing perceived latency to near-zero.
+- **Model Management CLI**: New `harp models` command group to `download`, `list`, and `remove` Whisper models (tiny, base, small, medium, large-v3).
+- **Text-Only LLM Integration**: Refactored the API client to support any OpenAI-compatible endpoint for Command Mode and post-processing, sending locally transcribed text instead of raw audio.
+- **Pre-flight Checks**: Harp now verifies that the configured Whisper model is downloaded before starting the daemon.
+
+### Changed
+- **Configuration Refactor**: Updated `HarpConfig` with explicit sections for local STT settings (`local_model`, `local_device`, `local_compute_type`) and LLM settings (`llm_api_key`, `llm_base_url`, `llm_model`).
+- **Dependency Management**: Switched to `faster-whisper` and `huggingface-hub` for model handling.
+- **API Client**: Renamed `OpenRouterClient` to `LLMClient` and removed all audio-encoding logic (WAV/Base64).
+
+### Fixed
+- Updated all unit and integration tests to support the new local-first architecture and mocked AI components for CI stability.
+- Improved typing reliability by ensuring modifier keys are released before typing the result.
+
 ## [0.4.0] - 2026-03-11
 
 ### Added

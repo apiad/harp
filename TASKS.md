@@ -21,7 +21,6 @@ Put done tasks into the Archive.
 - [ ] Support for multiple international keyboard layouts (ISO, etc.) (#13)
 
 ### AI Features
-- [ ] Implement high-speed concurrent transcription architecture (See plan: `plans/fast-transcription-v2-streaming.md`)
 - [ ] Add support for local Whisper models (faster-whisper/whisper.cpp) (#7)
 - [ ] Implement 'Prompt Presets' for different command variants (#8)
 - [ ] Add post-processing hooks for transcribed text (#9)
@@ -50,3 +49,4 @@ Put done tasks into the Archive.
 - [x] Implement Clipboard Context & Auto-Copy features (See plan: `plans/clipboard-context-features.md`) (2026-03-04)
 - [x] Implement voice-based integration test (#14) (See plan: `plans/voice-integration-test.md`) (2026-03-04)
 - [x] Implement CLI overhaul and YAML configuration system (See plan: `plans/cli-overhaul-config.md`) (2026-03-11)
+- [x] Implement local-first Whisper refactor and high-speed concurrent transcription (See plan: `plans/local-first-whisper-refactor.md`) (2026-03-11)
