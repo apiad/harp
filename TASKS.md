@@ -17,7 +17,6 @@ Put done tasks into the Archive.
 ## Active Tasks
 
 ### UX & Customization
-- [/] Implement CLI overhaul and YAML configuration system (See plan: `plans/cli-overhaul-config.md`) (@apiad)
 - [ ] Configure custom hotkeys via .env or YAML (#5)
 - [ ] Support for multiple international keyboard layouts (ISO, etc.) (#13)
 
@@ -50,3 +49,4 @@ Put done tasks into the Archive.
 - [x] Implement 'Command' mode (Ctrl + Shift + Space) for voice instructions (2026-03-03)
 - [x] Implement Clipboard Context & Auto-Copy features (See plan: `plans/clipboard-context-features.md`) (2026-03-04)
 - [x] Implement voice-based integration test (#14) (See plan: `plans/voice-integration-test.md`) (2026-03-04)
+- [x] Implement CLI overhaul and YAML configuration system (See plan: `plans/cli-overhaul-config.md`) (2026-03-11)
