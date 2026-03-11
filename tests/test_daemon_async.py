@@ -2,17 +2,13 @@
 Asynchronous tests for the Harpo daemon.
 """
 
-from __future__ import annotations
-
 import asyncio
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
 
-if TYPE_CHECKING:
-    from harp.daemon import HarpDaemon
+from harp.daemon import DaemonState, HarpDaemon
 
 
 @pytest.fixture
@@ -20,8 +16,6 @@ def async_daemon() -> HarpDaemon:
     """
     Provides a fresh HarpDaemon instance with mocked components for async tests.
     """
-    from harp.daemon import HarpDaemon
-
     with (
         patch("harp.daemon.AudioStreamer"),
         patch("harp.daemon.WaylandTyper"),
@@ -44,8 +38,6 @@ async def test_handle_events_ctrl_space(async_daemon: HarpDaemon) -> None:
     Mocks evdev events to simulate Ctrl+Space and verify state change.
     """
     import evdev
-
-    from harp.daemon import DaemonState
 
     mock_device = MagicMock(spec=evdev.InputDevice)
 
@@ -82,8 +74,6 @@ async def test_stop_recording_success(async_daemon: HarpDaemon) -> None:
     """
     Verifies full transcription process on stop.
     """
-    from harp.daemon import DaemonState
-
     async_daemon.config.type_result = True
     async_daemon.state = DaemonState.RECORDING
     async_daemon.audio_streamer.stop_recording.return_value = np.array(
@@ -107,8 +97,6 @@ async def test_stop_recording_command_mode(async_daemon: HarpDaemon) -> None:
     """
     Verifies command mode processing via LLMClient.
     """
-    from harp.daemon import DaemonState
-
     async_daemon.config.type_result = True
     async_daemon._is_command_mode = True
     async_daemon.state = DaemonState.RECORDING
@@ -139,8 +127,6 @@ async def test_background_transcription_loop_continuous(
     """
     Verifies the incremental chunking logic in the background loop.
     """
-    from harp.daemon import DaemonState
-
     async_daemon.config.continuous = True
     async_daemon.config.stt_min_chunk_size = 0.1
     async_daemon.config.stt_slide_interval = 0.1
