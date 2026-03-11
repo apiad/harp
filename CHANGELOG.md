@@ -9,19 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Local-First Transcription**: Integrated `faster-whisper` for high-performance, private, and offline-capable transcription.
-- **Concurrent Background Processing**: Implemented a background transcription loop that processes audio *while* the user is speaking, reducing perceived latency to near-zero.
+- **Concurrent Background Processing**: Implemented an opt-in background transcription loop (`--continuous`) that processes audio *while* the user is speaking, reducing perceived latency to near-zero.
 - **Model Management CLI**: New `harp models` command group to `download`, `list`, and `remove` Whisper models (tiny, base, small, medium, large-v3).
 - **Text-Only LLM Integration**: Refactored the API client to support any OpenAI-compatible endpoint for Command Mode and post-processing, sending locally transcribed text instead of raw audio.
 - **Pre-flight Checks**: Harp now verifies that the configured Whisper model is downloaded before starting the daemon.
+- **Hardware Settings**: New flags `--local-device` and `--local-compute-type` to customize STT execution.
 
 ### Changed
-- **Configuration Refactor**: Updated `HarpConfig` with explicit sections for local STT settings (`local_model`, `local_device`, `local_compute_type`) and LLM settings (`llm_api_key`, `llm_base_url`, `llm_model`).
+- **Configuration Refactor**: Updated `HarpConfig` with explicit sections for local STT settings and LLM settings.
 - **Dependency Management**: Switched to `faster-whisper` and `huggingface-hub` for model handling.
-- **API Client**: Renamed `OpenRouterClient` to `LLMClient` and removed all audio-encoding logic (WAV/Base64).
+- **API Client**: Renamed `OpenRouterClient` to `LLMClient` and removed all audio-encoding logic.
+- **Optimized CLI**: Moved heavy imports inside commands to make `harp --help`, `harp init`, and `harp config` significantly faster.
+- **Safety-First Defaults**: Output modes (`--type` and `--copy`) are now **False** by default to prevent accidental input injection.
 
 ### Fixed
+- **CUDA Robustness**: Added a graceful fallback to CPU mode if CUDA libraries (like `libcublas`) are missing or if hardware acceleration fails.
+- **Model Organization**: Refined model storage to use subdirectories, preventing file conflicts and ensuring accurate listing.
 - Updated all unit and integration tests to support the new local-first architecture and mocked AI components for CI stability.
-- Improved typing reliability by ensuring modifier keys are released before typing the result.
 
 ## [0.4.0] - 2026-03-11
 
