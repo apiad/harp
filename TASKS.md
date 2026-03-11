@@ -21,6 +21,7 @@ Put done tasks into the Archive.
 - [ ] Support for multiple international keyboard layouts (ISO, etc.) (#13)
 
 ### AI Features
+- [ ] Implement high-speed concurrent transcription architecture (See plan: `plans/fast-transcription-v2-streaming.md`)
 - [ ] Add support for local Whisper models (faster-whisper/whisper.cpp) (#7)
 - [ ] Implement 'Prompt Presets' for different command variants (#8)
 - [ ] Add post-processing hooks for transcribed text (#9)
