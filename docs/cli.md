@@ -11,22 +11,32 @@ Starts the background daemon listening for hotkeys.
 | `-d, --device` | Path or name of the input device (e.g., `/dev/input/event0`). |
 | `-t, --toggle` | Use toggle mode (click to start, click to stop) instead of hold mode. |
 | `-f, --full` | Type all characters including symbols (opt-in; default is safe mode). |
-| `--type / --no-type` | Enable or disable typing results (default is enable). |
-| `--copy / --no-copy` | Enable or disable copying results to clipboard (default is enable). |
+| `-c, --continuous` | Enable continuous background transcription for long recordings. |
+| `--local-device` | Hardware device for STT (`cpu`, `cuda`, `auto`). Default: `auto`. |
+| `--local-compute-type` | Model quantization (`int8`, `float16`, `float32`, `default`). Default: `default`. |
+| `--type / --no-type` | Enable or disable typing results (default is disable). |
+| `--copy / --no-copy` | Enable or disable copying results to clipboard (default is disable). |
 | `--send-clipboard <num>` | Number of tokens from clipboard to send in Command Mode. |
-| `--transcribe-prompt` | Override the default transcription prompt. |
 | `--command-prompt` | Override the default command mode prompt. |
+
+### Hardware Settings Guide
+- **`--local-device auto`**: Harp will attempt to use CUDA if an NVIDIA GPU is found, otherwise it defaults to CPU.
+- **`--local-compute-type default`**: Automatically selects the fastest supported quantization for your hardware (e.g., `float32` on CPU, `float16` on GPU).
+- **`--local-compute-type int8`**: Highly recommended for CPUs with AVX-512 VNNI support for maximum speed.
 
 ### Usage Examples
 ```bash
-# Start with defaults (Hold Ctrl+Space to record)
+# Start with defaults (Hold Ctrl+Space to record, print to CLI)
 harp start
 
-# Toggle mode with full character support
-harp start --toggle --full
+# Explicitly force CPU mode if GPU libraries are missing
+harp start --local-device cpu
+
+# Toggle mode with full character support and auto-typing
+harp start --toggle --full --type
 
 # Only copy to clipboard, don't type
-harp start --no-type --copy
+harp start --copy
 ```
 
 ## `harp models`

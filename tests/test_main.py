@@ -93,6 +93,11 @@ def test_cli_start_custom(
             "--copy",
             "--send-clipboard",
             "1000",
+            "--continuous",
+            "--local-device",
+            "cpu",
+            "--local-compute-type",
+            "float32",
         ],
     )
 
@@ -105,6 +110,9 @@ def test_cli_start_custom(
     assert overrides["type"] is True
     assert overrides["copy"] is True
     assert overrides["send_clipboard"] == 1000
+    assert overrides["continuous"] is True
+    assert overrides["local_device"] == "cpu"
+    assert overrides["local_compute_type"] == "float32"
 
     mock_daemon_class.assert_called_once_with(config=mock_config)
     mock_instance.run.assert_called_once()

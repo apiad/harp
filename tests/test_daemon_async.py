@@ -118,3 +118,38 @@ async def test_stop_recording_command_mode(async_daemon: HarpDaemon) -> None:
     assert async_daemon.state == DaemonState.IDLE
     async_daemon.llm_client.process_text.assert_called_once()
     async_daemon.typer.type_text.assert_called_with("Command Output")
+
+
+@pytest.mark.asyncio
+async def test_background_transcription_loop_continuous(
+    async_daemon: HarpDaemon,
+) -> None:
+    """
+    Verifies the incremental chunking logic in the background loop.
+    """
+    async_daemon.config.continuous = True
+    async_daemon.config.stt_min_chunk_size = 0.1
+    async_daemon.config.stt_slide_interval = 0.1
+    async_daemon.config.stt_overlap = 0.05
+    async_daemon.state = DaemonState.RECORDING
+
+    # Mock audio buffer: 16000 samples/sec * 0.5s = 8000 samples
+    audio_data = np.zeros(8000, dtype=np.float32)
+    async_daemon.audio_streamer.get_current_buffer.return_value = audio_data
+
+    # Mock whisper engine transcribe
+    async_daemon.whisper_engine.transcribe.return_value = "Incremental result"
+
+    # Start loop in a task
+    loop_task = asyncio.create_task(async_daemon._background_transcription_loop())
+
+    # Give it some time to run at least one pass
+    await asyncio.sleep(0.7)
+
+    # Stop recording to end the loop
+    async_daemon.state = DaemonState.IDLE
+    await loop_task
+
+    # Verify that transcribe was called
+    assert async_daemon.whisper_engine.transcribe.called
+    assert async_daemon._latest_transcription == "Incremental result"

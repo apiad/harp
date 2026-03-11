@@ -19,7 +19,7 @@ For in-depth information, please refer to our documentation:
 ## ✨ Features
 ...
 - **Local-First Transcription**: Powered by `faster-whisper`, ensuring your voice data stays on your machine and transcription is lightning-fast.
-- **Concurrent Processing**: Harp transcribes your voice in the background *while* you speak, so the result is ready the moment you stop.
+- **Continuous Processing (Opt-in)**: With `--continuous`, Harp transcribes long recordings incrementally in the background, showing you live feedback in the terminal.
 - **Global Hotkey (`Ctrl + Space`)**: Instantly start and stop voice capture from anywhere.
 - **Direct Keyboard Emulation**: Transcribed text is typed automatically into your active application.
 - **Model Management CLI**: Easily download, list, and manage Whisper models (tiny, base, small, medium, large-v3) directly from the `harp` command.
@@ -112,7 +112,7 @@ You can customize Harp's behavior using the following flags:
 | `--full`          | `-f`  | Disable safe filtering and type all returned characters, including symbols.         | Essential when dictating code, complex punctuation, or URLs.                                                            |
 | `--copy`          |       | Automatically copy the final transcribed text to your clipboard.                    | Dictate an idea, let Harp type it out, and also have it ready in your clipboard to paste elsewhere.                    |
 | `--send-clipboard`|       | **Command Mode Only:** Send a number of tokens from the clipboard as context to LLM. | Copy an email, press `Ctrl+Shift+Space`, and say "Draft a polite decline to this email."                                |
-| `--type`          |       | Enable typing the result (default: True).                                           | Disable with `harp start --no-type` if you only want to copy to clipboard.                                             |
+| `--type`          |       | Enable typing the result (default: False).                                          | Enable with `harp start --type` to type directly into active windows.                 |
 
 ### Examples
 

@@ -196,23 +196,69 @@ class HarpDaemon:
 
     async def _background_transcription_loop(self) -> None:
         """
-        Periodically transcribes the current audio buffer in the background.
+        Periodically transcribes new audio chunks when continuous mode is enabled.
         """
+        if not self.config.continuous:
+            return
+
+        sample_rate = 16000
+        transcribed_seconds = 0.0
+
         while self.state == DaemonState.RECORDING:
             await asyncio.sleep(0.5)
 
-            # Use current buffer
+            # Get full audio data
             audio_data = self.audio_streamer.get_current_buffer()
-            if audio_data.size == 0:
+            current_duration = audio_data.size / sample_rate
+
+            # Should we transcribe?
+            should_transcribe = False
+            if transcribed_seconds == 0:
+                # First pass after min_chunk_size
+                if current_duration >= self.config.stt_min_chunk_size:
+                    should_transcribe = True
+            else:
+                # Subsequent passes after slide_interval
+                if (
+                    current_duration - transcribed_seconds
+                    >= self.config.stt_slide_interval
+                ):
+                    should_transcribe = True
+
+            if not should_transcribe:
                 continue
 
-            # Run transcription in a separate thread to avoid blocking the loop
+            # Calculate chunk to transcribe (with overlap)
+            start_sec = max(0, transcribed_seconds - self.config.stt_overlap)
+            start_idx = int(start_sec * sample_rate)
+            chunk = audio_data.flatten()[start_idx:]
+
+            if chunk.size == 0:
+                continue
+
             try:
                 loop = asyncio.get_event_loop()
-                transcription = await loop.run_in_executor(
-                    None, self.whisper_engine.transcribe, audio_data.flatten()
+                # Use latest transcription as prompt for consistency
+                # Limit prompt size to avoid token bloat
+                prompt = (
+                    self._latest_transcription[-200:]
+                    if self._latest_transcription
+                    else None
                 )
-                self._latest_transcription = transcription
+
+                new_text = await loop.run_in_executor(
+                    None, self.whisper_engine.transcribe, chunk, prompt
+                )
+
+                if new_text:
+                    # Simple stitching: for background feedback, we just update the latest
+                    # because we will do a full high-accuracy pass at the end anyway.
+                    # We print it dimmed to the console.
+                    self._latest_transcription = new_text
+                    self.console.print(f"[dim]... {new_text}[/dim]")
+
+                transcribed_seconds = current_duration
+
             except Exception:
                 # Silently ignore background errors
                 pass

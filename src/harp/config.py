@@ -29,7 +29,8 @@ class HarpConfig(BaseSettings):
         default="auto", description="Device for local STT (cpu, cuda, auto)"
     )
     local_compute_type: str = Field(
-        default="int8", description="Compute type for local STT (int8, float16)"
+        default="default",
+        description="Compute type for local STT (int8, float16, float32, default)",
     )
 
     # LLM (Post-processing) Settings
@@ -42,18 +43,31 @@ class HarpConfig(BaseSettings):
     )
 
     # Output Modes
-    type_result: bool = Field(default=True, alias="type", description="Type the result")
+    type_result: bool = Field(
+        default=False, alias="type", description="Type the result"
+    )
     copy_result: bool = Field(
-        default=True, alias="copy", description="Copy the result to clipboard"
+        default=False, alias="copy", description="Copy the result to clipboard"
     )
     send_clipboard: int = Field(
         default=0, description="Tokens to send from clipboard in command mode"
     )
 
-    # Prompts
-    transcribe_prompt: str = Field(
-        default="Transcribe this audio exactly.", description="Prompt for transcription"
+    # STT Behavior
+    continuous: bool = Field(
+        default=False, description="Enable continuous background transcription"
     )
+    stt_min_chunk_size: float = Field(
+        default=30.0, description="Initial audio duration before first background pass"
+    )
+    stt_slide_interval: float = Field(
+        default=10.0, description="Interval between subsequent background passes"
+    )
+    stt_overlap: float = Field(
+        default=5.0, description="Overlap duration for context between passes"
+    )
+
+    # Prompts
     command_prompt: str = Field(
         default=(
             "Listen to the following audio. It contains a command or instruction. "

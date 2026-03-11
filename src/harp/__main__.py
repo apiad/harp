@@ -43,11 +43,19 @@ def start(
         "--send-clipboard",
         help="Tokens to send from clipboard context in command mode",
     ),
-    transcribe_prompt: Optional[str] = typer.Option(
-        None, "--transcribe-prompt", help="Custom prompt for transcription"
-    ),
     command_prompt: Optional[str] = typer.Option(
         None, "--command-prompt", help="Custom prompt for command mode"
+    ),
+    continuous: Optional[bool] = typer.Option(
+        None, "--continuous", "-c", help="Enable continuous background transcription"
+    ),
+    local_device: Optional[str] = typer.Option(
+        None, "--local-device", help="Device for local STT (cpu, cuda, auto)"
+    ),
+    local_compute_type: Optional[str] = typer.Option(
+        None,
+        "--local-compute-type",
+        help="Compute type for local STT (int8, float16, float32, default)",
     ),
 ) -> None:
     """
@@ -61,8 +69,10 @@ def start(
         "type": type_result,
         "copy": copy_result,
         "send_clipboard": send_clipboard,
-        "transcribe_prompt": transcribe_prompt,
         "command_prompt": command_prompt,
+        "continuous": continuous,
+        "local_device": local_device,
+        "local_compute_type": local_compute_type,
     }
 
     config = load_config(overrides=overrides)
