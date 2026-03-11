@@ -1,6 +1,6 @@
 [project]
 name = "harpio"
-version = "0.5.0"
+version = "0.5.1"
 description = "A background daemon for Wayland that transcribes audio and types results."
 readme = "README.md"
 authors = [
