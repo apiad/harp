@@ -14,11 +14,82 @@ from rich.table import Table
 
 from harp.config import find_config_file, load_config
 
-app = typer.Typer(help="Harp: A Wayland daemon for voice transcription and commands.")
+app = typer.Typer(
+    help="Harp: A Wayland daemon for voice transcription and commands.",
+    no_args_is_help=False,
+)
 models_app = typer.Typer(help="Manage local Whisper models.")
 app.add_typer(models_app, name="models")
 
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    """
+    Harp: A Wayland daemon for voice transcription and commands.
+    """
+    if ctx.invoked_subcommand is None:
+        run_daemon()
+
+
+def run_daemon(
+    device: Optional[str] = None,
+    toggle: Optional[bool] = None,
+    full_mode: Optional[bool] = None,
+    type_result: Optional[bool] = None,
+    copy_result: Optional[bool] = None,
+    send_clipboard: Optional[int] = None,
+    command_prompt: Optional[str] = None,
+    continuous: Optional[bool] = None,
+    local_device: Optional[str] = None,
+    local_compute_type: Optional[str] = None,
+    local_language: Optional[str] = None,
+) -> None:
+    """
+    Internal logic to start the Harp daemon with overrides.
+    """
+    # Create overrides dict (excluding None values)
+    overrides = {
+        "device": device,
+        "toggle": toggle,
+        "full_mode": full_mode,
+        "type": type_result,
+        "copy": copy_result,
+        "send_clipboard": send_clipboard,
+        "command_prompt": command_prompt,
+        "continuous": continuous,
+        "local_device": local_device,
+        "local_compute_type": local_compute_type,
+        "local_language": local_language,
+    }
+
+    config = load_config(overrides=overrides)
+
+    from harp.daemon import HarpDaemon
+    from harp.whisper import LocalWhisperEngine
+
+    # Pre-flight check: Verify if local model is downloaded
+    local_models = LocalWhisperEngine.list_local_models()
+    # faster-whisper model names in cache usually include 'models--' prefix or are just the size
+    # Let's check for exact match or partial match
+    model_found = False
+    for m in local_models:
+        if config.local_model in m:
+            model_found = True
+            break
+
+    if not model_found:
+        console.print(
+            f"[bold red]Error:[/] Whisper model '[bold cyan]{config.local_model}[/]' not found."
+        )
+        console.print(
+            f"Please run: [bold green]harp models download {config.local_model}[/]"
+        )
+        raise typer.Exit(code=1)
+
+    daemon = HarpDaemon(config=config)
+    daemon.run()
 
 
 @app.command()
@@ -57,50 +128,29 @@ def start(
         "--local-compute-type",
         help="Compute type for local STT (int8, float16, float32, default)",
     ),
+    language: Optional[str] = typer.Option(
+        None,
+        "--language",
+        "-l",
+        help="Language code for STT (e.g., 'en', 'es'). Default: auto",
+    ),
 ) -> None:
     """
     Starts the Harp background daemon.
     """
-    # Create overrides dict from CLI options (excluding None values)
-    overrides = {
-        "device": device,
-        "toggle": toggle,
-        "full_mode": full,
-        "type": type_result,
-        "copy": copy_result,
-        "send_clipboard": send_clipboard,
-        "command_prompt": command_prompt,
-        "continuous": continuous,
-        "local_device": local_device,
-        "local_compute_type": local_compute_type,
-    }
-
-    config = load_config(overrides=overrides)
-
-    from harp.daemon import HarpDaemon
-    from harp.whisper import LocalWhisperEngine
-
-    # Pre-flight check: Verify if local model is downloaded
-    local_models = LocalWhisperEngine.list_local_models()
-    # faster-whisper model names in cache usually include 'models--' prefix or are just the size
-    # Let's check for exact match or partial match
-    model_found = False
-    for m in local_models:
-        if config.local_model in m:
-            model_found = True
-            break
-
-    if not model_found:
-        console.print(
-            f"[bold red]Error:[/] Whisper model '[bold cyan]{config.local_model}[/]' not found."
-        )
-        console.print(
-            f"Please run: [bold green]harp models download {config.local_model}[/]"
-        )
-        raise typer.Exit(code=1)
-
-    daemon = HarpDaemon(config=config)
-    daemon.run()
+    run_daemon(
+        device=device,
+        toggle=toggle,
+        full_mode=full,
+        type_result=type_result,
+        copy_result=copy_result,
+        send_clipboard=send_clipboard,
+        command_prompt=command_prompt,
+        continuous=continuous,
+        local_device=local_device,
+        local_compute_type=local_compute_type,
+        local_language=language,
+    )
 
 
 @models_app.command("download")
