@@ -255,7 +255,11 @@ class HarpDaemon:
                 )
 
                 new_text = await loop.run_in_executor(
-                    None, self.whisper_engine.transcribe, chunk, prompt
+                    None,
+                    self.whisper_engine.transcribe,
+                    chunk,
+                    prompt,
+                    self.config.local_language,
                 )
 
                 if new_text:
@@ -315,7 +319,11 @@ class HarpDaemon:
                         # We use run_in_executor to keep UI responsive
                         loop = asyncio.get_running_loop()
                         transcription = await loop.run_in_executor(
-                            None, self.whisper_engine.transcribe, audio_data.flatten()
+                            None,
+                            self.whisper_engine.transcribe,
+                            audio_data.flatten(),
+                            None,
+                            self.config.local_language,
                         )
 
                         if not transcription:

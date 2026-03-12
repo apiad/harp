@@ -32,6 +32,9 @@ class HarpConfig(BaseSettings):
         default="default",
         description="Compute type for local STT (int8, float16, float32, default)",
     )
+    local_language: Optional[str] = Field(
+        default=None, description="Language code for local STT (e.g., 'en', 'es')"
+    )
 
     # LLM (Post-processing) Settings
     llm_api_key: str = Field(default="", description="OpenAI-compatible API key")

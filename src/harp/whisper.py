@@ -65,7 +65,10 @@ class LocalWhisperEngine:
             )
 
     def transcribe(
-        self, audio_data: np.ndarray, initial_prompt: Optional[str] = None
+        self,
+        audio_data: np.ndarray,
+        initial_prompt: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> str:
         """
         Transcribes the given audio data.
@@ -73,6 +76,7 @@ class LocalWhisperEngine:
         Args:
             audio_data: Float32 numpy array of audio samples (16kHz mono).
             initial_prompt: Optional text to bias the transcription context.
+            language: Optional language code (e.g., 'en', 'es').
 
         Returns:
             The transcribed text.
@@ -85,6 +89,7 @@ class LocalWhisperEngine:
                 audio_data,
                 beam_size=5,
                 initial_prompt=initial_prompt,
+                language=language,
                 vad_filter=False,  # VAD is handled by the user manually or not at all as requested
             )
 
@@ -109,7 +114,7 @@ class LocalWhisperEngine:
                 self.device = "cpu"
                 self.compute_type = "default"
                 self.model = None  # Force reload
-                return self.transcribe(audio_data, initial_prompt)
+                return self.transcribe(audio_data, initial_prompt, language)
             else:
                 raise e
 
