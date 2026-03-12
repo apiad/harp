@@ -1,6 +1,6 @@
 # CLI Reference
 
-The `harp` command is the main entry point for starting the daemon and managing its configuration and models.
+The `harp` command is the main entry point for starting the daemon and managing its configuration and models. Running `harp` without any arguments is equivalent to running `harp start`.
 
 ## `harp start`
 Starts the background daemon listening for hotkeys.
@@ -12,6 +12,7 @@ Starts the background daemon listening for hotkeys.
 | `-t, --toggle` | Use toggle mode (click to start, click to stop) instead of hold mode. |
 | `-f, --full` | Type all characters including symbols (opt-in; default is safe mode). |
 | `-c, --continuous` | Enable continuous background transcription for long recordings. |
+| `-l, --language` | Language code for STT (e.g., `en`, `es`). Default: `auto`. |
 | `--local-device` | Hardware device for STT (`cpu`, `cuda`, `auto`). Default: `auto`. |
 | `--local-compute-type` | Model quantization (`int8`, `float16`, `float32`, `default`). Default: `default`. |
 | `--type / --no-type` | Enable or disable typing results (default is disable). |
@@ -27,10 +28,10 @@ Starts the background daemon listening for hotkeys.
 ### Usage Examples
 ```bash
 # Start with defaults (Hold Ctrl+Space to record, print to CLI)
-harp start
+harp
 
 # Explicitly force CPU mode if GPU libraries are missing
-harp start --local-device cpu
+harp --local-device cpu
 
 # Toggle mode with full character support and auto-typing
 harp start --toggle --full --type

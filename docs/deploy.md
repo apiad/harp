@@ -54,6 +54,7 @@ Harp can be configured via environment variables (prefixed with `HARP_`) or a `.
 local_model: "base"
 local_device: "auto"
 local_compute_type: "default"
+local_language: null # e.g., "en", "es" for fixed language
 
 # LLM Settings (for Command Mode)
 llm_api_key: "your_key"
@@ -99,7 +100,7 @@ harp start --local-device cpu
 Always ensure at least one Whisper model is downloaded before running the daemon:
 ```bash
 harp models download base
-harp start
+harp
 ```
 
 ---

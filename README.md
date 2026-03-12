@@ -95,11 +95,16 @@ sudo apt install libportaudio2 wl-clipboard
 
 ## ⌨️ Usage
 
-Start the daemon using the CLI. By default, it runs in "Hold Mode" and only types safe characters.
+Start the daemon using the CLI. By default, running `harp` without arguments starts the background daemon in "Hold Mode" and only prints the result to the terminal.
 
 ```bash
-harp start
+harp
 ```
+
+### Commands
+
+- `harp`: Starts the background daemon (alias for `harp start`).
+- `harp start`: Starts the background daemon with explicit options.
 
 ### Configuration & CLI Options
 
@@ -118,12 +123,12 @@ You can customize Harp's behavior using the following flags:
 
 **Programmer Mode:** Toggle recording, type all code symbols, and copy the result to clipboard.
 ```bash
-harp start --toggle --full --copy
+harp --toggle --full --copy
 ```
 
 **Contextual Assistant:** Use clipboard context and limit to the last 1000 tokens.
 ```bash
-harp start --send-clipboard 1000
+harp --send-clipboard 1000
 ```
 
 ## 🤝 Contributing
