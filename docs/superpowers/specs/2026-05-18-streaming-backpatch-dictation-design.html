@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- META kind=spec title="harp — Real-time streaming + back-patch dictation" status=approved date=2026-05-18 source="vault/Efforts/Repos/Recording 20260518135728.md (voice vision note)" -->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>harp — Real-time streaming + back-patch dictation — Design</title>
+<style>
+  :root {
+    --ivory:#FAF9F5; --slate:#141413; --clay:#D97757; --oat:#E3DACC;
+    --olive:#788C5D; --rust:#B04A3F; --blue:#4A6FA5;
+    --g150:#F0EEE6; --g300:#D1CFC5; --g500:#87867F; --g700:#3D3D3A;
+    --serif:ui-serif,Georgia,'Times New Roman',serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Monaco,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--ivory);color:var(--g700);font-family:var(--sans);
+    font-size:15px;line-height:1.6;padding:40px 24px 80px}
+  .page{max-width:920px;margin:0 auto}
+  header.doc{border:1.5px solid var(--g300);border-radius:12px;
+    padding:24px 28px;background:#fff;margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:12px;color:var(--g500);
+    text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+  h1{font-family:var(--serif);font-weight:500;font-size:28px;
+    line-height:1.25;color:var(--slate);margin-bottom:12px}
+  .meta{display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+    font-size:13px;color:var(--g500)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;
+    padding:2px 9px;border-radius:999px;text-transform:uppercase;
+    letter-spacing:.05em}
+  .badge-ok{background:#E7EEDF;color:var(--olive)}
+  .badge-warn{background:#F6E9D8;color:var(--clay)}
+  .badge-bad{background:#F3DEDB;color:var(--rust)}
+  nav.toc{background:var(--g150);border-radius:10px;padding:14px 20px;
+    margin-bottom:30px;font-size:14px}
+  nav.toc a{color:var(--g700);text-decoration:none;margin-right:18px;
+    white-space:nowrap;line-height:2}
+  nav.toc a:hover{color:var(--clay);text-decoration:underline}
+  section{background:#fff;border:1.5px solid var(--g300);border-radius:12px;
+    padding:22px 28px;margin-bottom:20px}
+  h2{font-family:var(--serif);font-weight:500;font-size:21px;
+    color:var(--slate);margin-bottom:14px}
+  h3{font-size:15px;font-weight:600;color:var(--g700);margin:16px 0 8px}
+  p{margin-bottom:12px}
+  ul,ol{margin:0 0 12px 24px}  li{margin-bottom:6px}
+  table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:14px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--g300)}
+  th{font-family:var(--mono);font-size:12px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--g500);background:var(--g150)}
+  code{font-family:var(--mono);font-size:13px;background:var(--g150);
+    padding:1px 5px;border-radius:4px}
+  pre{background:var(--slate);color:var(--ivory);font-family:var(--mono);
+    font-size:13px;line-height:1.5;padding:16px 18px;border-radius:8px;
+    overflow-x:auto;margin:6px 0 14px}
+  pre code{background:none;padding:0;color:inherit;font-size:13px}
+  details{border:1px solid var(--g300);border-radius:8px;padding:10px 16px;
+    margin:6px 0 14px;background:var(--g150)}
+  details summary{cursor:pointer;font-weight:600;color:var(--g700)}
+  details[open] summary{margin-bottom:10px}
+  footer{margin-top:30px;font-size:12px;color:var(--g500);
+    font-family:var(--mono);text-align:center}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc">
+    <div class="kicker">Design Spec</div>
+    <h1>harp — Real-time streaming &amp; back-patch dictation</h1>
+    <div class="meta">
+      <span class="badge badge-ok">approved</span>
+      <span>2026-05-18</span>
+      <span>Source: voice vision note (<code>Recording 20260518135728</code>)</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <a href="#goal">Goal</a>
+    <a href="#decisions">Locked decisions</a>
+    <a href="#components">Components</a>
+    <a href="#flow">Data flow</a>
+    <a href="#policy">Commit policy</a>
+    <a href="#removal">Removal scope</a>
+    <a href="#errors">Error handling</a>
+    <a href="#testing">Testing</a>
+    <a href="#nongoals">Non-goals</a>
+  </nav>
+
+  <section id="goal">
+    <h2>Goal</h2>
+    <p>Turn harp into a local-first, real-time dictation engine: as you speak,
+    transcribed text appears in the focused application with a few-seconds
+    delay — typed key-by-key as if you were typing it — and earlier text is
+    silently corrected (delete + retype) when later transcription passes
+    revise it. This is the "Whisper Flow" effect. Real-time matters because a
+    2-hour dictation (e.g. a meeting) cannot wait until the end for its
+    transcript. This spec covers <strong>slice A</strong> only: the streaming
+    core + back-patch typing inside the existing keyboard daemon.</p>
+  </section>
+
+  <section id="decisions">
+    <h2>Locked decisions</h2>
+    <ol>
+      <li><strong>Stable-prefix + volatile tail.</strong> Only the unstable
+      tail (last few seconds) is ever rewritten. Once a segment is old enough
+      and agrees across passes it is <em>committed</em> and never touched
+      again — bounds the blast radius of the dangerous backspace path over a
+      2-hour session.</li>
+      <li><strong>Approach 1 — re-decode rolling window + LocalAgreement-2.</strong>
+      Re-transcribe a sliding window each tick; commit the longest prefix that
+      agrees across two successive hypotheses. De-facto standard for local
+      streaming Whisper; zero new dependencies.</li>
+      <li><strong>Drop command mode + cloud LLM entirely.</strong> Remove
+      <code>api.py</code>, <code>LLMClient</code>, <code>Ctrl+Shift+Space</code>,
+      the <code>openai</code> dependency and the <code>llm_*</code> /
+      <code>command_prompt</code> / <code>send_clipboard</code> config. harp
+      becomes a pure local dictation engine. (Folds the old "slice C" cleanup
+      into this work since the streaming rewrite touches the same stop path.)</li>
+      <li><strong>Streaming is the only mode.</strong> No batch fallback — the
+      commit policy degenerates correctly for short utterances (everything
+      commits on stop). One activation: <code>Ctrl+Space</code> toggles a
+      streaming session; hold-to-talk variant analogous.</li>
+      <li><strong>Streaming core is I/O-free.</strong>
+      <code>StreamingTranscriber</code> depends only on an injected
+      <code>transcribe()</code> callable — so the future REST server (slice B,
+      Magpie substrate) feeds it identically to the daemon. That reuse
+      boundary is the reason it is a standalone module now.</li>
+      <li><strong>Cadence defaults are empirical.</strong> Slide interval /
+      window / model defaults will be tuned by measurement per model size and
+      CUDA availability, not guessed up front.</li>
+    </ol>
+  </section>
+
+  <section id="components">
+    <h2>Components</h2>
+    <table>
+      <thead><tr><th>Unit</th><th>Responsibility</th><th>Depends on</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>streaming.py</code><br><code>StreamingTranscriber</code></td>
+          <td>Holds the float32/16k audio buffer. <code>feed(pcm)</code>,
+          <code>step() &rarr; TranscriptState(committed, tail)</code>.
+          Implements LocalAgreement-2 + buffer trim at the commit point.
+          Pure logic, no I/O, no audio device, no uinput.</td>
+          <td>injected <code>transcribe(np.ndarray, prompt, lang) &rarr; str</code></td>
+        </tr>
+        <tr>
+          <td><code>input.py</code><br><code>IncrementalTyper</code></td>
+          <td>Tracks <code>rendered</code> = chars currently on screen. On
+          <code>update(text)</code>: longest-common-prefix vs
+          <code>rendered</code>, backspace the divergent suffix, type the
+          remainder. Honors <code>pause_typing</code>, never backspaces past
+          session start, hard per-step backspace cap.</td>
+          <td><code>WaylandTyper</code> (existing <code>backspace()</code>/<code>type_text()</code>)</td>
+        </tr>
+        <tr>
+          <td><code>daemon.py</code><br>(record path rewrite)</td>
+          <td>While RECORDING, every <code>slide</code>s: pull new samples
+          &rarr; <code>feed</code> &rarr; <code>step</code> (in executor,
+          coalesced) &rarr; <code>IncrementalTyper.update</code>. On stop:
+          final flush, commit tail, end session.</td>
+          <td><code>AudioStreamer</code>, <code>StreamingTranscriber</code>,
+          <code>IncrementalTyper</code>, <code>LocalWhisperEngine</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="flow">
+    <h2>Data flow</h2>
+    <ol>
+      <li>mic &rarr; <code>AudioStreamer</code> callback appends PCM to buffer
+      (existing).</li>
+      <li>Daemon slide loop (every <code>slide</code>s while RECORDING) pulls
+      newly-arrived samples and calls <code>transcriber.feed(pcm)</code>.</li>
+      <li><code>transcriber.step()</code> re-decodes the rolling window via
+      <code>LocalWhisperEngine.transcribe</code> wrapped in
+      <code>run_in_executor</code> (keeps the event loop responsive); returns
+      <code>TranscriptState(committed, tail)</code>.</li>
+      <li><code>IncrementalTyper.update(committed + tail)</code> diffs against
+      what is already on screen and emits the minimal backspace + type
+      sequence into the focused window.</li>
+      <li><code>Ctrl+Space</code> again &rarr; one final
+      <code>feed</code>/<code>step</code>, commit the remaining tail, end the
+      session.</li>
+    </ol>
+    <pre><code>def step(self) -&gt; TranscriptState:
+    # re-decode window [commit_point - overlap : now]
+    hyp = self._transcribe(self._window(), self._committed_text, self.lang)
+    agreed = longest_common_prefix(hyp, self._prev_hyp)   # LocalAgreement-2
+    self._commit(agreed)            # append to committed, trim audio buffer
+    self._prev_hyp = hyp
+    return TranscriptState(self._committed_text, hyp[len(agreed):])</code></pre>
+  </section>
+
+  <section id="policy">
+    <h2>Commit policy (LocalAgreement-2)</h2>
+    <ul>
+      <li>Keep the previous hypothesis. Each tick, the longest common prefix
+      of the new and previous hypotheses is "agreed" and appended to the
+      immutable committed text.</li>
+      <li>After a commit, audio before <code>(commit_point &minus; overlap)</code>
+      is dropped so decode cost stays bounded regardless of session length.</li>
+      <li>The committed text is fed back as <code>initial_prompt</code> for
+      continuity across the trim boundary.</li>
+      <li>On session stop, the current tail is force-committed (no second
+      hypothesis needed — recording is over).</li>
+      <li>Tunable knobs (defaults set empirically): <code>slide_interval</code>,
+      <code>window</code>, <code>overlap</code>, agreement passes (default 2).</li>
+    </ul>
+  </section>
+
+  <section id="removal">
+    <h2>Removal scope</h2>
+    <p><strong>Delete:</strong> <code>src/harp/api.py</code>,
+    <code>LLMClient</code> usage in <code>daemon.py</code>, the
+    <code>Ctrl+Shift+Space</code> command-mode branch,
+    <code>_get_clipboard_context</code>, the <code>openai</code> dependency in
+    <code>pyproject.toml</code>, and the <code>llm_api_key</code> /
+    <code>llm_base_url</code> / <code>llm_model</code> /
+    <code>command_prompt</code> / <code>send_clipboard</code> fields in
+    <code>config.py</code> + their CLI options in <code>__main__.py</code>.</p>
+    <p><strong>Keep:</strong> <code>copy_result</code> (clipboard copy of the
+    final text — independent of the cloud), all <code>local_*</code> Whisper
+    config, model-management CLI, the evdev grab / uinput passthrough
+    machinery.</p>
+    <p><strong>Replace:</strong> the half-built <code>continuous</code> mode +
+    <code>_background_transcription_loop</code> + the batch finalize block in
+    <code>_stop_recording</code> are superseded by the streaming loop and
+    removed.</p>
+  </section>
+
+  <section id="errors">
+    <h2>Error handling</h2>
+    <ul>
+      <li><strong>Decode exception in a step</strong> &rarr; skip that step,
+      keep the buffer, dim-log; never crash the session (existing pattern).</li>
+      <li><strong>Decode slower than slide</strong> &rarr; coalesce; never
+      queue ticks. Effective cadence degrades to decode time; warn once.</li>
+      <li><strong>User types mid-session</strong> &rarr;
+      <code>pause_typing</code> defers emission; reconcile in one batch when
+      quiet.</li>
+      <li><strong>Backspace cap exceeded</strong> (e.g. language flip rewrites
+      a huge tail) &rarr; stop rewriting history, switch to append-only for
+      the rest of the session, desktop-notify.</li>
+      <li><strong>Blind-typing caveat</strong> &rarr; uinput cannot observe
+      the target app, so a manual edit or focus change <em>inside</em> the
+      typed region mid-dictation is undetectable. Bounded by the backspace
+      cap; documented as "do not hand-edit while dictating". Detection is out
+      of scope for slice A.</li>
+    </ul>
+  </section>
+
+  <section id="testing">
+    <h2>Testing</h2>
+    <p>Tests are written and validated inline (not delegated — they are the
+    verification layer).</p>
+    <ul>
+      <li><strong><code>StreamingTranscriber</code> units</strong> — scripted
+      fake <code>transcribe()</code> returning a controlled hypothesis
+      sequence; assert commit/tail evolution, LocalAgreement-2 correctness,
+      buffer trim, prompt continuity. Pure, fast, no audio.</li>
+      <li><strong><code>IncrementalTyper</code> units</strong> — recording
+      fake typer capturing <code>(backspace_count, typed_str)</code> ops;
+      assert minimal diff, committed-prefix preservation, pause deferral,
+      cap-exceeded fallback.</li>
+      <li><strong>Daemon streaming loop</strong> — async test with fake
+      streamer + transcriber + typer; assert final committed text on stop and
+      no crash when a transcribe step raises.</li>
+      <li><strong>Integration</strong> — existing voice-integration-test
+      pattern over a real short WAV (marked <code>integration</code>); assert
+      final text close to expected.</li>
+      <li><strong>Live manual run</strong> — the empirical cadence-tuning step:
+      measure decode time per model/device, set sensible defaults, verify the
+      feel (latency, no corruption).</li>
+      <li><strong>Removal verification</strong> — <code>openai</code> absent
+      from <code>pyproject.toml</code>, no <code>LLMClient</code> import, full
+      suite green, <code>ruff</code> clean.</li>
+    </ul>
+  </section>
+
+  <section id="nongoals">
+    <h2>Non-goals</h2>
+    <ul>
+      <li><strong>Slice B — REST server mode.</strong> Own spec/plan/build
+      cycle. The I/O-free core is designed so B reuses it; B is not built
+      here.</li>
+      <li><strong>Slice D — Magpie integration.</strong> Downstream consumer
+      of B; separate cycle.</li>
+      <li><strong>Approach 2</strong> (word-timestamp tail-only re-decode)
+      deferred — a later optimization if decode cost dominates.</li>
+      <li>Detecting manual edits / focus changes in the target app.</li>
+      <li>Local instruction LLM to replace command mode — explicitly not
+      wanted in this vision.</li>
+    </ul>
+    <details>
+      <summary>Open questions &amp; deferred items</summary>
+      <ul>
+        <li>Exact default values for <code>slide_interval</code> /
+        <code>window</code> / <code>overlap</code> per model &amp; CUDA — set
+        during the live-tuning step, then recorded in <code>config.py</code>
+        defaults and the CLI reference.</li>
+        <li>Whether to surface a CLI flag to fully disable back-patch
+        (append-only mode) as a safety valve — decide after live testing.</li>
+        <li>Uncertain segments in the source voice note (<code>[?e-inbox?]</code>,
+        the garbled final sentence) relate to slice D, not this slice.</li>
+      </ul>
+    </details>
+  </section>
+
+  <footer>single self-contained file · no external dependencies</footer>
+
+</div>
+</body>
+</html>
