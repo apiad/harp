@@ -36,15 +36,6 @@ class HarpConfig(BaseSettings):
         default=None, description="Language code for local STT (e.g., 'en', 'es')"
     )
 
-    # LLM (Post-processing) Settings
-    llm_api_key: str = Field(default="", description="OpenAI-compatible API key")
-    llm_base_url: str = Field(
-        default="https://openrouter.ai/api/v1", description="LLM API base URL"
-    )
-    llm_model: str = Field(
-        default="google/gemini-2.0-flash", description="LLM model to use"
-    )
-
     # Output Modes
     type_result: bool = Field(
         default=False, alias="type", description="Type the result"
@@ -52,32 +43,20 @@ class HarpConfig(BaseSettings):
     copy_result: bool = Field(
         default=False, alias="copy", description="Copy the result to clipboard"
     )
-    send_clipboard: int = Field(
-        default=0, description="Tokens to send from clipboard in command mode"
-    )
 
-    # STT Behavior
-    continuous: bool = Field(
-        default=False, description="Enable continuous background transcription"
+    # STT Behavior (real-time streaming)
+    stream_window: float = Field(
+        default=30.0, description="Rolling re-decode window in seconds"
     )
-    stt_min_chunk_size: float = Field(
-        default=30.0, description="Initial audio duration before first background pass"
+    stream_overlap: float = Field(
+        default=5.0, description="Audio retained across a buffer trim, seconds"
     )
-    stt_slide_interval: float = Field(
-        default=10.0, description="Interval between subsequent background passes"
-    )
-    stt_overlap: float = Field(
-        default=5.0, description="Overlap duration for context between passes"
-    )
-
-    # Prompts
-    command_prompt: str = Field(
-        default=(
-            "Listen to the following audio. It contains a command or instruction. "
-            "Execute the command or follow the instruction and provide ONLY the result. "
-            "Do NOT transcribe the audio, do NOT acknowledge the request, just output the final result."
-        ),
-        description="Prompt for command mode",
+    # NOTE: stream_slide_interval must be tuned per model/device on a host
+    # with a real microphone. Default below is a conservative guess; see
+    # README / CHANGELOG for tuning guidance.
+    stream_slide_interval: float = Field(
+        default=1.0,
+        description="Seconds between streaming re-decode passes (tuned per model)",
     )
 
     # UI/Behavior
