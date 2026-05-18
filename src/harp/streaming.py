@@ -72,6 +72,17 @@ class StreamingTranscriber:
         prompt = self._committed[-200:] or None
         return self._transcribe(audio, prompt, self._language).strip()
 
+    def _maybe_trim(self) -> None:
+        max_samples = int(self._window * self._sr)
+        if self._buf.shape[0] <= max_samples:
+            return
+        keep = int(self._overlap * self._sr)
+        self._buf = (
+            self._buf[-keep:] if keep > 0 else np.zeros(0, dtype=np.float32)
+        )
+        # Hypothesis no longer aligns to the trimmed buffer; reset agreement.
+        self._prev_hyp = ""
+
     def step(self) -> "TranscriptState":
         if self._buf.size == 0:
             return TranscriptState(self._committed, "")
@@ -91,7 +102,10 @@ class StreamingTranscriber:
             agreed = " ".join(curr_words[:n]) + " "
             self._committed += agreed
             hyp = " ".join(curr_words[n:])
-        self._prev_hyp = hyp
+            self._prev_hyp = hyp
+            self._maybe_trim()
+        else:
+            self._prev_hyp = hyp
         return TranscriptState(self._committed, hyp)
 
     def finalize(self) -> "TranscriptState":

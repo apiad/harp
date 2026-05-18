@@ -56,3 +56,17 @@ def test_step_on_empty_buffer_is_safe():
     st = StreamingTranscriber(transcribe=lambda a, p, l: "x")
     s = st.step()
     assert s == TranscriptState("", "")
+
+
+def test_buffer_trims_after_commit_when_over_window():
+    scripted = iter(["alpha beta", "alpha beta gamma", "alpha beta gamma delta"])
+
+    def fake(audio, prompt, lang):
+        return next(scripted)
+
+    st = StreamingTranscriber(transcribe=fake, window=1.0, overlap=0.25)
+    st.feed(_audio(seconds=2.0))
+    st.step()
+    st.feed(_audio(seconds=2.0))
+    st.step()
+    assert st._buf.shape[0] == int(0.25 * 16000)
