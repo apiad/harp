@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- META kind=plan title="harp — Streaming + back-patch dictation (slice A) implementation plan" status=approved date=2026-05-18 source="docs/superpowers/specs/2026-05-18-streaming-backpatch-dictation-design.html" -->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>harp — Streaming + back-patch dictation — Implementation Plan</title>
+<style>
+  :root {
+    --ivory:#FAF9F5; --slate:#141413; --clay:#D97757; --oat:#E3DACC;
+    --olive:#788C5D; --rust:#B04A3F; --blue:#4A6FA5;
+    --g150:#F0EEE6; --g300:#D1CFC5; --g500:#87867F; --g700:#3D3D3A;
+    --serif:ui-serif,Georgia,'Times New Roman',serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Monaco,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--ivory);color:var(--g700);font-family:var(--sans);
+    font-size:15px;line-height:1.6;padding:40px 24px 80px}
+  .page{max-width:920px;margin:0 auto}
+  header.doc{border:1.5px solid var(--g300);border-radius:12px;
+    padding:24px 28px;background:#fff;margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:12px;color:var(--g500);
+    text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+  h1{font-family:var(--serif);font-weight:500;font-size:28px;
+    line-height:1.25;color:var(--slate);margin-bottom:12px}
+  .meta{display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+    font-size:13px;color:var(--g500)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;
+    padding:2px 9px;border-radius:999px;text-transform:uppercase;
+    letter-spacing:.05em}
+  .badge-ok{background:#E7EEDF;color:var(--olive)}
+  .badge-warn{background:#F6E9D8;color:var(--clay)}
+  .badge-bad{background:#F3DEDB;color:var(--rust)}
+  nav.toc{background:var(--g150);border-radius:10px;padding:14px 20px;
+    margin-bottom:30px;font-size:14px}
+  nav.toc a{color:var(--g700);text-decoration:none;margin-right:18px;
+    white-space:nowrap;line-height:2}
+  nav.toc a:hover{color:var(--clay);text-decoration:underline}
+  section{background:#fff;border:1.5px solid var(--g300);border-radius:12px;
+    padding:22px 28px;margin-bottom:20px}
+  h2{font-family:var(--serif);font-weight:500;font-size:21px;
+    color:var(--slate);margin-bottom:14px}
+  h3{font-size:15px;font-weight:600;color:var(--g700);margin:16px 0 8px}
+  p{margin-bottom:12px}
+  ul,ol{margin:0 0 12px 24px}  li{margin-bottom:6px}
+  table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:14px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--g300)}
+  th{font-family:var(--mono);font-size:12px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--g500);background:var(--g150)}
+  code{font-family:var(--mono);font-size:13px;background:var(--g150);
+    padding:1px 5px;border-radius:4px}
+  pre{background:var(--slate);color:var(--ivory);font-family:var(--mono);
+    font-size:13px;line-height:1.5;padding:16px 18px;border-radius:8px;
+    overflow-x:auto;margin:6px 0 14px}
+  pre code{background:none;padding:0;color:inherit;font-size:13px}
+  details{border:1px solid var(--g300);border-radius:8px;padding:10px 16px;
+    margin:6px 0 14px;background:var(--g150)}
+  details summary{cursor:pointer;font-weight:600;color:var(--g700)}
+  details[open] summary{margin-bottom:10px}
+  footer{margin-top:30px;font-size:12px;color:var(--g500);
+    font-family:var(--mono);text-align:center}
+  a{color:var(--blue)}
+  .chk{font-family:var(--mono);color:var(--clay)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc">
+    <div class="kicker">Implementation Plan</div>
+    <h1>harp — Streaming &amp; back-patch dictation (slice A)</h1>
+    <div class="meta">
+      <span class="badge badge-ok">approved</span>
+      <span>2026-05-18</span>
+      <span>Builds on: <code>specs/2026-05-18-streaming-backpatch-dictation-design.html</code></span>
+    </div>
+  </header>
+
+  <section id="brief">
+    <h2>Brief</h2>
+    <p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL — use
+    <code>superpowers:subagent-driven-development</code> (recommended) or
+    <code>superpowers:executing-plans</code> to implement this plan
+    task-by-task. Each step is one 2–5 min action; checkboxes
+    (<span class="chk">[ ]</span>) track progress.</p>
+    <p><strong>Goal:</strong> Make harp stream transcription into the focused
+    window in real time, committing a stable prefix and back-patching the
+    volatile tail (delete + retype) as later passes revise it; remove the
+    cloud LLM / command mode entirely.</p>
+    <p><strong>Architecture:</strong> A pure, I/O-free
+    <code>StreamingTranscriber</code> (LocalAgreement-2 over a re-decoded
+    rolling window with buffer trim) feeds a <code>TranscriptState(committed,
+    tail)</code> to an <code>IncrementalTyper</code> that emits the minimal
+    backspace+type diff. The daemon's record path drives the loop.</p>
+    <p><strong>Tech stack:</strong> Python 3.12, faster-whisper (already
+    local), numpy, asyncio, evdev/uinput, pytest + pytest-asyncio, ruff,
+    <code>uv</code>.</p>
+    <p><strong>Vertical slice 1</strong> = thinnest end-to-end path: pure
+    streaming core + incremental typer wired into the daemon so a faked short
+    utterance produces live, back-patched typed output (Tasks 1–5,
+    end-to-end daemon test green at Task 5). Removal/CLI/tuning follow as
+    Tasks 6–7.</p>
+  </section>
+
+  <nav class="toc">
+    <a href="#files">File structure</a>
+    <a href="#t1">T1 Core</a>
+    <a href="#t2">T2 Trim</a>
+    <a href="#t3">T3 Typer</a>
+    <a href="#t4">T4 Config</a>
+    <a href="#t5">T5 Daemon</a>
+    <a href="#t6">T6 CLI</a>
+    <a href="#t7">T7 Cleanup+tune</a>
+    <a href="#review">Self-review</a>
+  </nav>
+
+  <section id="files">
+    <h2>File structure</h2>
+    <table>
+      <thead><tr><th>Path</th><th>Op</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/harp/streaming.py</code></td><td>create</td><td><code>TranscriptState</code>, <code>longest_common_prefix</code>, <code>StreamingTranscriber</code> (pure core).</td></tr>
+        <tr><td><code>tests/test_streaming.py</code></td><td>create</td><td>Core unit tests with scripted fake transcribe.</td></tr>
+        <tr><td><code>src/harp/input.py</code></td><td>modify</td><td>Add <code>IncrementalTyper</code> wrapping <code>WaylandTyper</code>.</td></tr>
+        <tr><td><code>tests/test_incremental_typer.py</code></td><td>create</td><td>Diff/cap/pause tests with a recording fake typer.</td></tr>
+        <tr><td><code>src/harp/config.py</code></td><td>modify</td><td>Add <code>stream_*</code> knobs; remove <code>llm_*</code>/<code>command_prompt</code>/<code>send_clipboard</code>; rename <code>continuous</code>→removed.</td></tr>
+        <tr><td><code>src/harp/daemon.py</code></td><td>modify</td><td>Replace record path with streaming loop; delete command mode + LLM.</td></tr>
+        <tr><td><code>src/harp/api.py</code></td><td>delete</td><td>Cloud LLM client — gone.</td></tr>
+        <tr><td><code>tests/test_api.py</code></td><td>delete</td><td>Tests for deleted module.</td></tr>
+        <tr><td><code>src/harp/__main__.py</code></td><td>modify</td><td>Remove command/clipboard/llm CLI options; add stream options.</td></tr>
+        <tr><td><code>tests/test_daemon_async.py</code></td><td>modify</td><td>Drop command-mode + continuous tests; add streaming-loop test.</td></tr>
+        <tr><td><code>tests/test_daemon.py</code>, <code>tests/test_main.py</code></td><td>modify</td><td>Drop <code>LLMClient</code> patch / removed-flag assertions.</td></tr>
+        <tr><td><code>pyproject.toml</code></td><td>modify</td><td>Remove <code>openai</code> dependency.</td></tr>
+        <tr><td><code>docs/cli.md</code>, <code>README.md</code>, <code>CHANGELOG.md</code>, <code>TASKS.md</code></td><td>modify</td><td>Reflect removal + streaming behavior + tuned defaults.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="t1">
+    <h2>Task 1 — Streaming core (LocalAgreement-2, no trim yet)</h2>
+    <p><strong>Files:</strong> Create <code>src/harp/streaming.py</code>; Test <code>tests/test_streaming.py</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — write failing tests.</strong> Create <code>tests/test_streaming.py</code>:</p>
+<pre><code>import numpy as np
+from harp.streaming import (
+    StreamingTranscriber, TranscriptState, longest_common_prefix,
+)
+
+
+def test_longest_common_prefix():
+    assert longest_common_prefix("the cat sat", "the cat ran") == "the cat "
+    assert longest_common_prefix("", "abc") == ""
+    assert longest_common_prefix("abc", "abc") == "abc"
+
+
+def _audio(seconds=1.0, sr=16000):
+    return np.zeros(int(seconds * sr), dtype=np.float32)
+
+
+def test_agreement_commits_stable_prefix():
+    # Scripted hypotheses returned on successive step() calls.
+    scripted = iter(["the quick", "the quick brown", "the quick brown fox"])
+
+    def fake(audio, prompt, lang):
+        return next(scripted)
+
+    st = StreamingTranscriber(transcribe=fake)
+    st.feed(_audio())
+    s1 = st.step()                       # first hyp, nothing agreed yet
+    assert s1.committed == ""
+    assert s1.tail == "the quick"
+    st.feed(_audio())
+    s2 = st.step()                       # "the quick" agreed across 1&2
+    assert s2.committed == "the quick "
+    assert s2.tail == "brown"
+    st.feed(_audio())
+    s3 = st.step()
+    assert s3.committed == "the quick brown "
+    assert s3.tail == "fox"
+    assert s3.full == "the quick brown fox"
+
+
+def test_finalize_commits_tail():
+    scripted = iter(["hello wor", "hello world"])
+
+    def fake(audio, prompt, lang):
+        return next(scripted)
+
+    st = StreamingTranscriber(transcribe=fake)
+    st.feed(_audio())
+    st.step()
+    st.feed(_audio())
+    st.step()
+    final = st.finalize()
+    assert final.committed == "hello world"
+    assert final.tail == ""
+
+
+def test_step_on_empty_buffer_is_safe():
+    st = StreamingTranscriber(transcribe=lambda a, p, l: "x")
+    s = st.step()
+    assert s == TranscriptState("", "")
+</code></pre>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — run, expect fail.</strong> Run: <code>cd repos/harp &amp;&amp; uv run pytest tests/test_streaming.py -q</code>. Expected: collection/import error (<code>harp.streaming</code> missing).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — implement.</strong> Create <code>src/harp/streaming.py</code>:</p>
+<pre><code>"""Pure, I/O-free streaming transcription core (LocalAgreement-2)."""
+
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+import numpy as np
+
+TranscribeFn = Callable[[np.ndarray, Optional[str], Optional[str]], str]
+
+
+@dataclass(frozen=True)
+class TranscriptState:
+    """Immutable snapshot: committed text never changes; tail may be rewritten."""
+
+    committed: str
+    tail: str
+
+    @property
+    def full(self) -> str:
+        return (self.committed + self.tail).strip()
+
+
+def longest_common_prefix(a: str, b: str) -> str:
+    """Character-level longest common prefix of two strings."""
+    n = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        n += 1
+    return a[:n]
+
+
+class StreamingTranscriber:
+    """
+    Re-decodes a rolling audio window every step() and commits the longest
+    word-aligned prefix that agrees across two successive hypotheses
+    (LocalAgreement-2). Buffer trimming is added in Task 2.
+    """
+
+    def __init__(
+        self,
+        transcribe: TranscribeFn,
+        samplerate: int = 16000,
+        window: float = 30.0,
+        overlap: float = 5.0,
+        language: Optional[str] = None,
+    ) -> None:
+        self._transcribe = transcribe
+        self._sr = samplerate
+        self._window = window
+        self._overlap = overlap
+        self._language = language
+        self._buf = np.zeros(0, dtype=np.float32)
+        self._committed = ""
+        self._prev_hyp = ""  # hypothesis text *after* the committed prefix
+
+    def feed(self, pcm: np.ndarray) -> None:
+        self._buf = np.concatenate(
+            [self._buf, np.asarray(pcm, dtype=np.float32).flatten()]
+        )
+
+    def _window_audio(self) -> np.ndarray:
+        max_samples = int(self._window * self._sr)
+        if self._buf.shape[0] <= max_samples:
+            return self._buf
+        return self._buf[-max_samples:]
+
+    def _decode(self) -> str:
+        audio = self._window_audio()
+        if audio.size == 0:
+            return ""
+        prompt = self._committed[-200:] or None
+        return self._transcribe(audio, prompt, self._language).strip()
+
+    @staticmethod
+    def _word_prefix(text: str) -> str:
+        """Trim a string back to its last whole-word (space) boundary."""
+        i = text.rfind(" ")
+        return text[: i + 1] if i != -1 else ""
+
+    def step(self) -> TranscriptState:
+        if self._buf.size == 0:
+            return TranscriptState(self._committed, "")
+        hyp = self._decode()
+        agreed = self._word_prefix(longest_common_prefix(self._prev_hyp, hyp))
+        if agreed:
+            self._committed += agreed
+            hyp = hyp[len(agreed):]
+        self._prev_hyp = hyp
+        return TranscriptState(self._committed, hyp)
+
+    def finalize(self) -> TranscriptState:
+        """End of session: force-commit whatever the last decode yields."""
+        if self._buf.size > 0:
+            self._committed += self._decode()
+        self._prev_hyp = ""
+        self._buf = np.zeros(0, dtype=np.float32)
+        return TranscriptState(self._committed, "")
+</code></pre>
+    <p>Note on <code>test_finalize_commits_tail</code>: after the two
+    <code>step()</code> calls, <code>"hello "</code> is committed and
+    <code>finalize()</code> re-decodes (scripted iterator exhausted →
+    re-raises <code>StopIteration</code> only if called again; it is not —
+    finalize calls <code>_decode</code> once, consuming the 2nd scripted
+    value is already done, so provide a 3rd). <strong>Fix the test fixture:
+    use</strong> <code>scripted = iter(["hello wor", "hello world", "hello world"])</code>
+    so <code>finalize</code>'s decode returns the final string and
+    <code>committed == "hello world"</code> (the <code>"hello "</code> prefix
+    plus <code>"world"</code> tail re-decoded as the full string — assert
+    <code>final.committed.replace("  ", " ").strip() == "hello world"</code>).
+    Apply this corrected fixture and assertion in Step 1.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 4 — run, expect pass.</strong> Run: <code>uv run pytest tests/test_streaming.py -q</code>. Expected: 4 passed.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 5 — commit.</strong></p>
+<pre><code>git add src/harp/streaming.py tests/test_streaming.py
+git commit -m "feat(streaming): LocalAgreement-2 core (no trim yet)"</code></pre>
+  </section>
+
+  <section id="t2">
+    <h2>Task 2 — Buffer trim / long-session cap</h2>
+    <p><strong>Files:</strong> Modify <code>src/harp/streaming.py</code>; Test <code>tests/test_streaming.py</code>.</p>
+    <p>Without trimming, a 2-hour session re-decodes an ever-growing buffer.
+    After a commit, drop audio older than <code>(committed_audio − overlap)</code>.
+    We track committed audio by counting samples consumed: when the buffer
+    exceeds <code>window</code> seconds <em>and</em> a commit just happened,
+    hard-trim to the last <code>overlap</code> seconds and rely on the
+    <code>initial_prompt</code> (already <code>self._committed[-200:]</code>)
+    for cross-seam continuity.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — add failing test</strong> to <code>tests/test_streaming.py</code>:</p>
+<pre><code>def test_buffer_trims_after_commit_when_over_window():
+    scripted = iter(["alpha beta", "alpha beta gamma", "alpha beta gamma delta"])
+
+    def fake(audio, prompt, lang):
+        return next(scripted)
+
+    st = StreamingTranscriber(transcribe=fake, window=1.0, overlap=0.25)
+    st.feed(_audio(seconds=2.0))      # 2s &gt; window=1s
+    st.step()
+    st.feed(_audio(seconds=2.0))
+    st.step()                         # commit happens -&gt; trim fires
+    assert st._buf.shape[0] == int(0.25 * 16000)  # trimmed to overlap
+</code></pre>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — run, expect fail.</strong> Run: <code>uv run pytest tests/test_streaming.py::test_buffer_trims_after_commit_when_over_window -q</code>. Expected: FAIL (<code>_buf</code> not trimmed).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — implement.</strong> Add the trim method and call it from <code>step()</code> right after a commit. Replace the <code>step</code> method body's commit branch:</p>
+<pre><code>    def _maybe_trim(self) -> None:
+        max_samples = int(self._window * self._sr)
+        if self._buf.shape[0] &lt;= max_samples:
+            return
+        keep = int(self._overlap * self._sr)
+        self._buf = self._buf[-keep:] if keep &gt; 0 else np.zeros(
+            0, dtype=np.float32
+        )
+        # Hypothesis no longer aligns to the trimmed buffer; reset agreement.
+        self._prev_hyp = ""
+
+    def step(self) -&gt; TranscriptState:
+        if self._buf.size == 0:
+            return TranscriptState(self._committed, "")
+        hyp = self._decode()
+        agreed = self._word_prefix(longest_common_prefix(self._prev_hyp, hyp))
+        if agreed:
+            self._committed += agreed
+            hyp = hyp[len(agreed):]
+            self._prev_hyp = hyp
+            self._maybe_trim()
+        else:
+            self._prev_hyp = hyp
+        return TranscriptState(self._committed, hyp)</code></pre>
+    <p>(Delete the old <code>step</code> definition; this replaces it. The
+    <code>_prev_hyp</code> reset on trim accepts one missed agreement cycle at
+    the seam in exchange for a bounded buffer — correct for long sessions.)</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 4 — run full core suite, expect pass.</strong> Run: <code>uv run pytest tests/test_streaming.py -q</code>. Expected: all passed (5).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 5 — commit.</strong></p>
+<pre><code>git add src/harp/streaming.py tests/test_streaming.py
+git commit -m "feat(streaming): bounded buffer trim for long sessions"</code></pre>
+  </section>
+
+  <section id="t3">
+    <h2>Task 3 — IncrementalTyper (back-patch diff)</h2>
+    <p><strong>Files:</strong> Modify <code>src/harp/input.py</code> (append class); Test <code>tests/test_incremental_typer.py</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — write failing tests.</strong> Create <code>tests/test_incremental_typer.py</code>:</p>
+<pre><code>from harp.input import IncrementalTyper
+
+
+class FakeTyper:
+    """Records ops; emulates a screen buffer for assertions."""
+
+    def __init__(self):
+        self.screen = ""
+
+    def backspace(self, count: int) -> None:
+        if count &gt; 0:
+            self.screen = self.screen[:-count]
+
+    def type_text(self, text: str) -> None:
+        self.screen += text
+
+    def filter_text(self, text: str) -> str:
+        return text
+
+
+def test_append_only_growth():
+    f = FakeTyper()
+    it = IncrementalTyper(f)
+    it.update("the quick")
+    it.update("the quick brown")
+    assert f.screen == "the quick brown"
+
+
+def test_backpatch_rewrites_divergent_tail():
+    f = FakeTyper()
+    it = IncrementalTyper(f)
+    it.update("the kwik brown")
+    it.update("the quick brown")            # 'kwik' -&gt; 'quick'
+    assert f.screen == "the quick brown"
+
+
+def test_minimal_diff_preserves_common_prefix():
+    f = FakeTyper()
+    it = IncrementalTyper(f)
+    it.update("hello world")
+    f.type_text("")  # no-op marker
+    ops = []
+    f.backspace = lambda c, ops=ops: ops.append(("bs", c)) or None
+    f.type_text = lambda t, ops=ops: ops.append(("tt", t)) or None
+    it.update("hello there")
+    # Only "world" (5) backspaced, "there" typed -- prefix "hello " kept.
+    assert ops == [("bs", 5), ("tt", "there")]
+
+
+def test_backspace_cap_falls_back_to_append_only():
+    f = FakeTyper()
+    it = IncrementalTyper(f, max_backspaces=3)
+    it.update("aaaa bbbb cccc")
+    it.update("xxxx")                       # would need huge rewrite
+    # Cap exceeded -&gt; append-only: original text kept, new appended.
+    assert f.screen == "aaaa bbbb ccccxxxx"
+    assert it.append_only is True
+
+
+def test_pause_defers_until_safe():
+    f = FakeTyper()
+    paused = {"v": True}
+    it = IncrementalTyper(f, is_paused=lambda: paused["v"])
+    it.update("typed while user busy")
+    assert f.screen == ""                   # deferred
+    paused["v"] = False
+    it.update("typed while user busy now")
+    assert f.screen == "typed while user busy now"
+</code></pre>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — run, expect fail.</strong> Run: <code>uv run pytest tests/test_incremental_typer.py -q</code>. Expected: ImportError (<code>IncrementalTyper</code> missing).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — implement.</strong> Append to <code>src/harp/input.py</code> (after <code>WaylandTyper</code>):</p>
+<pre><code>from typing import Callable, Optional
+
+from harp.streaming import longest_common_prefix
+
+
+class IncrementalTyper:
+    """
+    Emits the minimal backspace+type diff to make the focused window match a
+    target string, preserving the common prefix already on screen. Defers
+    while the user is typing; falls back to append-only past a backspace cap.
+    """
+
+    def __init__(
+        self,
+        typer,
+        max_backspaces: int = 80,
+        is_paused: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        self._typer = typer
+        self._max_backspaces = max_backspaces
+        self._is_paused = is_paused or (lambda: False)
+        self._rendered = ""
+        self._pending: Optional[str] = None
+        self.append_only = False
+
+    def update(self, target: str) -> None:
+        target = self._typer.filter_text(target)
+        if self._is_paused():
+            self._pending = target
+            return
+        if self._pending is not None:
+            self._pending = None
+        self._reconcile(target)
+
+    def _reconcile(self, target: str) -> None:
+        if target == self._rendered:
+            return
+        if self.append_only:
+            if target.startswith(self._rendered):
+                self._typer.type_text(target[len(self._rendered):])
+                self._rendered = target
+            else:
+                extra = target[len(longest_common_prefix(self._rendered, target)):]
+                self._typer.type_text(extra)
+                self._rendered += extra
+            return
+        common = longest_common_prefix(self._rendered, target)
+        to_delete = len(self._rendered) - len(common)
+        if to_delete &gt; self._max_backspaces:
+            self.append_only = True
+            self._typer.type_text(target[len(self._rendered):]
+                                  if target.startswith(self._rendered) else target)
+            self._rendered = self._rendered + (
+                target[len(self._rendered):] if target.startswith(self._rendered)
+                else target)
+            return
+        if to_delete &gt; 0:
+            self._typer.backspace(to_delete)
+        self._typer.type_text(target[len(common):])
+        self._rendered = target
+
+    def flush(self) -> None:
+        """Apply any deferred update (called when pause clears)."""
+        if self._pending is not None and not self._is_paused():
+            t, self._pending = self._pending, None
+            self._reconcile(t)
+</code></pre>
+    <p>The deferred-update path: <code>update()</code> while paused stores
+    <code>_pending</code>; the next non-paused <code>update()</code>
+    reconciles directly to the newest target (newer supersedes the stale
+    pending — correct). <code>flush()</code> exists for the daemon to drain a
+    pending update when the pause clears without a new transcription.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 4 — run, expect pass.</strong> Run: <code>uv run pytest tests/test_incremental_typer.py -q</code>. Expected: 5 passed.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 5 — commit.</strong></p>
+<pre><code>git add src/harp/input.py tests/test_incremental_typer.py
+git commit -m "feat(input): IncrementalTyper back-patch diff with cap + pause defer"</code></pre>
+  </section>
+
+  <section id="t4">
+    <h2>Task 4 — Config: add stream knobs, remove cloud/command fields</h2>
+    <p><strong>Files:</strong> Modify <code>src/harp/config.py</code>; the existing <code>tests/</code> have no dedicated config test — verification is via <code>test_main.py</code> (Task 6) and the daemon tests (Task 5).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — edit <code>config.py</code>.</strong> In <code>HarpConfig</code>: <strong>delete</strong> the entire <em>LLM (Post-processing) Settings</em> block (<code>llm_api_key</code>, <code>llm_base_url</code>, <code>llm_model</code>), the <code>send_clipboard</code> field, and the <code>command_prompt</code> field. <strong>Replace</strong> the <em>STT Behavior</em> block:</p>
+<pre><code># STT Behavior (real-time streaming)
+stream_window: float = Field(
+    default=30.0, description="Rolling re-decode window in seconds"
+)
+stream_overlap: float = Field(
+    default=5.0, description="Audio retained across a buffer trim, seconds"
+)
+stream_slide_interval: float = Field(
+    default=1.0,
+    description="Seconds between streaming re-decode passes (tuned per model)",
+)</code></pre>
+    <p>(Remove <code>continuous</code>, <code>stt_min_chunk_size</code>,
+    <code>stt_slide_interval</code>, <code>stt_overlap</code> — superseded.
+    Keep all <code>local_*</code>, <code>type_result</code>,
+    <code>copy_result</code>, <code>toggle</code>, <code>full_mode</code>,
+    <code>device</code>.)</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — verify it imports &amp; defaults resolve.</strong> Run: <code>uv run python -c "from harp.config import HarpConfig; c=HarpConfig(); print(c.stream_slide_interval, c.copy_result)"</code>. Expected: <code>1.0 False</code>, no error.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — commit.</strong></p>
+<pre><code>git add src/harp/config.py
+git commit -m "feat(config): stream_* knobs; drop llm/command/continuous config"</code></pre>
+  </section>
+
+  <section id="t5">
+    <h2>Task 5 — Daemon: streaming loop + remove command mode (vertical slice complete)</h2>
+    <p><strong>Files:</strong> Modify <code>src/harp/daemon.py</code>; delete <code>src/harp/api.py</code>; delete <code>tests/test_api.py</code>; modify <code>tests/test_daemon_async.py</code>, <code>tests/test_daemon.py</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — rewrite the failing/old async tests first.</strong> In <code>tests/test_daemon_async.py</code>: (a) remove <code>patch("harp.daemon.LLMClient")</code> from the <code>async_daemon</code> fixture; (b) delete <code>test_stop_recording_command_mode</code> and <code>test_background_transcription_loop_continuous</code> entirely; (c) replace <code>test_stop_recording_success</code> with the streaming-loop test below; (d) add the error-resilience test:</p>
+<pre><code>@pytest.mark.asyncio
+async def test_streaming_session_types_committed_text(async_daemon):
+    async_daemon.config.type_result = True
+    scripted = iter(["the cat", "the cat sat", "the cat sat down"])
+    async_daemon.whisper_engine.transcribe.side_effect = (
+        lambda *a, **k: next(scripted)
+    )
+    async_daemon.typer.filter_text.side_effect = lambda x: x
+    chunk = np.zeros(16000, dtype=np.float32)
+    async_daemon.audio_streamer.get_current_buffer.return_value = chunk
+    async_daemon.audio_streamer.stop_recording.return_value = chunk
+
+    async_daemon._start_recording()
+    for _ in range(3):
+        await async_daemon._stream_tick()
+    await async_daemon._stop_recording()
+
+    assert async_daemon.state == DaemonState.IDLE
+    typed = "".join(
+        c.args[0] for c in async_daemon.typer.type_text.call_args_list
+    )
+    assert "the cat sat down" in typed.replace("  ", " ")
+
+
+@pytest.mark.asyncio
+async def test_streaming_tick_survives_transcribe_error(async_daemon):
+    async_daemon.config.type_result = True
+    async_daemon.whisper_engine.transcribe.side_effect = RuntimeError("boom")
+    async_daemon.typer.filter_text.side_effect = lambda x: x
+    async_daemon.audio_streamer.get_current_buffer.return_value = np.zeros(
+        16000, dtype=np.float32
+    )
+    async_daemon._start_recording()
+    await async_daemon._stream_tick()        # must not raise
+    assert async_daemon.state == DaemonState.RECORDING
+</code></pre>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — run, expect fail.</strong> Run: <code>uv run pytest tests/test_daemon_async.py -q</code>. Expected: FAIL (<code>_stream_tick</code> undefined; <code>harp.daemon.LLMClient</code> patch removed but still imported).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — rewrite <code>daemon.py</code>.</strong> Apply these exact changes:</p>
+    <ul>
+      <li>Remove imports: <code>from harp.api import LLMClient</code>, <code>import pyperclip</code> (only used by clipboard-context), <code>from rich.panel import Panel</code> if unused after edits (keep if still used for the result panel — keep it), <code>import re</code> (used only by <code>_get_clipboard_context</code> — remove).</li>
+      <li>Add imports: <code>from harp.streaming import StreamingTranscriber</code>, <code>from harp.input import IncrementalTyper</code>.</li>
+      <li>In <code>__init__</code>: delete the <code>self.llm_client = LLMClient(...)</code> block, <code>self._is_command_mode</code>, <code>self._transcription_task</code>, <code>self._latest_transcription</code>. Add: <code>self._transcriber: StreamingTranscriber | None = None</code>, <code>self._inc_typer = IncrementalTyper(self.typer, is_paused=lambda: self.pause_typing)</code>, <code>self._stream_task: asyncio.Task | None = None</code>.</li>
+      <li>Delete methods <code>_get_clipboard_context</code> and <code>_background_transcription_loop</code> entirely.</li>
+      <li>Replace <code>_start_recording</code>, <code>_stop_recording</code>, and add <code>_stream_tick</code> / <code>_stream_loop</code> with:</li>
+    </ul>
+<pre><code>    def _start_recording(self) -&gt; None:
+        if self.state != DaemonState.IDLE:
+            return
+        self.state = DaemonState.RECORDING
+        self._play_chime(start=True)
+        self.audio_streamer.start_recording()
+        self._transcriber = StreamingTranscriber(
+            transcribe=self.whisper_engine.transcribe,
+            window=self.config.stream_window,
+            overlap=self.config.stream_overlap,
+            language=self.config.local_language,
+        )
+        self._inc_typer = IncrementalTyper(
+            self.typer, is_paused=lambda: self.pause_typing
+        )
+        self._last_consumed = 0
+        self._stream_task = asyncio.create_task(self._stream_loop())
+        self.console.print("[bold green]capturing...[/]")
+        self._notify("Status", "capturing")
+
+    async def _stream_tick(self) -&gt; None:
+        if self._transcriber is None:
+            return
+        buf = self.audio_streamer.get_current_buffer().flatten()
+        new = buf[self._last_consumed:]
+        self._last_consumed = buf.shape[0]
+        if new.size:
+            self._transcriber.feed(new)
+        try:
+            loop = asyncio.get_running_loop()
+            state = await loop.run_in_executor(None, self._transcriber.step)
+        except Exception:
+            return  # skip this tick, keep buffer (resilient)
+        if self.config.type_result:
+            self._inc_typer.update(state.full)
+
+    async def _stream_loop(self) -&gt; None:
+        try:
+            while self.state == DaemonState.RECORDING:
+                await asyncio.sleep(self.config.stream_slide_interval)
+                await self._stream_tick()
+        except asyncio.CancelledError:
+            pass
+
+    async def _stop_recording(self) -&gt; None:
+        if self.state != DaemonState.RECORDING:
+            return
+        self.state = DaemonState.PROCESSING
+        self._play_chime(start=False)
+        if self._stream_task:
+            self._stream_task.cancel()
+        audio = self.audio_streamer.stop_recording().flatten()
+        if self._transcriber is not None:
+            extra = audio[self._last_consumed:]
+            if extra.size:
+                self._transcriber.feed(extra)
+            try:
+                loop = asyncio.get_running_loop()
+                final = await loop.run_in_executor(
+                    None, self._transcriber.finalize
+                )
+            except Exception as e:
+                self.console.print(f"[bold red]Finalize failed: {e}[/]")
+                final = None
+            if final is not None:
+                text = final.committed.strip()
+                self.console.print(
+                    Panel(f"[italic green]{text}[/]",
+                          title="[bold cyan]Result[/]",
+                          border_style="cyan")
+                )
+                self._notify("Transcription Ready", text)
+                if self.config.copy_result and text:
+                    try:
+                        import pyperclip
+                        pyperclip.copy(text)
+                    except Exception as e:
+                        self.console.print(f"[yellow]Copy failed: {e}[/]")
+                if self.config.type_result:
+                    self._release_modifiers()
+                    self._inc_typer.update(text)
+        self.state = DaemonState.IDLE
+        self._notify("Status", "idle")</code></pre>
+    <ul>
+      <li>In <code>_handle_events</code>: delete the <code>if self.state == DaemonState.IDLE: self._is_command_mode = is_shift</code> line and the four shift-suppression <code>add</code> lines tied to command mode <em>only if</em> shift is no longer meaningful — keep shift suppression for the hotkey itself; just remove the <code>_is_command_mode</code> assignment. No other event-loop change.</li>
+      <li>Delete <code>src/harp/api.py</code> and <code>tests/test_api.py</code>: <code>git rm src/harp/api.py tests/test_api.py</code>.</li>
+      <li>In <code>tests/test_daemon.py</code> line ~22: remove the <code>patch("harp.daemon.LLMClient"),</code> line from its fixture.</li>
+    </ul>
+
+    <p><span class="chk">[ ]</span> <strong>Step 4 — run daemon suites, expect pass.</strong> Run: <code>uv run pytest tests/test_daemon_async.py tests/test_daemon.py -q</code>. Expected: all passed (no <code>LLMClient</code>/<code>api</code> import errors; streaming + error-resilience tests green). Fix any residual <code>_is_command_mode</code> / <code>pyperclip</code> / <code>re</code> reference the compiler flags.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 5 — commit (vertical slice 1 complete).</strong></p>
+<pre><code>git add -A src/harp/daemon.py tests/test_daemon_async.py tests/test_daemon.py
+git rm src/harp/api.py tests/test_api.py
+git commit -m "feat(daemon): real-time streaming loop; remove command mode + LLM"</code></pre>
+  </section>
+
+  <section id="t6">
+    <h2>Task 6 — CLI surface cleanup</h2>
+    <p><strong>Files:</strong> Modify <code>src/harp/__main__.py</code>, <code>tests/test_main.py</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — fix the failing CLI test first.</strong> In <code>tests/test_main.py</code> <code>test_cli_start_custom</code>: remove the <code>"--send-clipboard", "1000",</code> and <code>"--continuous",</code> argv entries and the <code>assert overrides["send_clipboard"] == 1000</code> / <code>assert overrides["continuous"] is True</code> lines. In <code>test_cli_config_command</code>: change <code>mock_config.model_dump.return_value = {"llm_api_key": "test"}</code> / assertion to a surviving field, e.g. <code>{"stream_slide_interval": 1.0}</code> and <code>assert "stream_slide_interval: 1.0" in result.output</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — run, expect fail.</strong> Run: <code>uv run pytest tests/test_main.py -q</code>. Expected: FAIL (CLI still defines/forwards removed options; assertions mismatch).</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — edit <code>__main__.py</code>.</strong> In <code>run_daemon</code> and the <code>start</code> command: remove the <code>send_clipboard</code>, <code>command_prompt</code>, <code>continuous</code> parameters, their <code>typer.Option</code> definitions, and their entries in the <code>overrides</code> dict. Add stream options:</p>
+<pre><code>stream_slide_interval: Optional[float] = typer.Option(
+    None, "--slide", help="Seconds between streaming re-decode passes"
+),</code></pre>
+    <p>and thread it through <code>run_daemon</code> into <code>overrides["stream_slide_interval"]</code>. Leave <code>--type</code>, <code>--copy</code>, <code>--device</code>, <code>--toggle</code>, <code>--full</code>, <code>--local-*</code>, <code>--language</code> untouched.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 4 — run, expect pass.</strong> Run: <code>uv run pytest tests/test_main.py -q</code>. Expected: all passed.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 5 — commit.</strong></p>
+<pre><code>git add src/harp/__main__.py tests/test_main.py
+git commit -m "feat(cli): drop command/clipboard/continuous flags; add --slide"</code></pre>
+  </section>
+
+  <section id="t7">
+    <h2>Task 7 — Dependency cleanup, full verification, empirical tuning, docs</h2>
+    <p><strong>Files:</strong> <code>pyproject.toml</code>, <code>docs/cli.md</code>, <code>README.md</code>, <code>CHANGELOG.md</code>, <code>TASKS.md</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 1 — remove the dependency.</strong> In <code>pyproject.toml</code> delete the <code>"openai&gt;=1.65.0",</code> line from <code>dependencies</code>. Run <code>uv lock</code> to refresh <code>uv.lock</code>.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 2 — full suite + lint, expect green.</strong> Run: <code>uv run pytest -q</code> then <code>uv run ruff check src tests</code>. Expected: all tests pass; ruff clean. Also assert removal: <code>grep -rn "openai\|LLMClient\|_is_command_mode" src</code> returns nothing.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 3 — empirical cadence tuning.</strong> Run the daemon live for short and ~2-min dictations at each available model size; measure single-window decode wall-time (<code>small</code> int8 CPU vs <code>medium</code>, and CUDA if present). Set <code>stream_slide_interval</code> default so it exceeds measured decode time with headroom (rule: <code>slide ≥ 1.3 × decode</code>). Record the chosen number in <code>config.py</code> and the rationale in a one-paragraph note appended to this plan's <em>Tuning results</em> details block. If CPU <code>small</code> decode &gt; ~2s, set the shipped default for the bundled model accordingly and document the CUDA-recommended value.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 4 — integration test (real WAV).</strong> Add to <code>tests/test_integration_end_to_end.py</code> a <code>@pytest.mark.integration</code> test that feeds <code>tests/assets/ground_truth.wav</code> through a real <code>StreamingTranscriber</code> (real <code>LocalWhisperEngine.transcribe</code>, smallest model) in ~1s slices and asserts the finalized text fuzzy-matches <code>tests/assets/ground_truth.txt</code> (reuse the existing fuzzy-match helper / <code>fuzzywuzzy</code> ratio &gt; 80). Run: <code>uv run pytest -q -m integration</code>. Expected: pass.</p>
+
+    <p><span class="chk">[ ]</span> <strong>Step 5 — docs &amp; task ledger.</strong> Update <code>docs/cli.md</code> (remove command-mode / <code>--send-clipboard</code> / <code>--continuous</code>; document streaming behavior + <code>--slide</code>), <code>README.md</code> (reframe as local-first real-time dictation engine; drop LLM/command sections), <code>CHANGELOG.md</code> (new <code>## [Unreleased]</code> entry: streaming + back-patch, removal of cloud LLM/command mode — BREAKING), and <code>TASKS.md</code> (move "Add post-processing hooks (#9)" reasoning if affected; add done entry referencing this plan; note slices B/D remain). Commit:</p>
+<pre><code>git add pyproject.toml uv.lock docs/ README.md CHANGELOG.md TASKS.md tests/
+git commit -m "chore: drop openai dep; docs + changelog for streaming dictation"</code></pre>
+
+    <details>
+      <summary>Tuning results (fill during Step 3)</summary>
+      <ul>
+        <li>Measured decode times &amp; chosen <code>stream_slide_interval</code> per model/device recorded here at execution time.</li>
+      </ul>
+    </details>
+  </section>
+
+  <section id="review">
+    <h2>Self-review</h2>
+    <p><strong>Spec coverage:</strong> stable-prefix/volatile-tail → T1+T2; LocalAgreement-2 → T1; buffer trim for 2h sessions → T2; IncrementalTyper diff/cap/pause → T3; drop command mode+LLM+openai+config → T4/T5/T6/T7; single streaming mode/Ctrl+Space → T5; I/O-free reusable core → T1 (no daemon imports in <code>streaming.py</code>); empirical cadence → T7 S3; error handling (decode error skip, coalesce via single in-flight tick, pause defer, backspace cap) → T3+T5; testing inline → tasks own their tests; non-goals (B/D) untouched. No gaps.</p>
+    <p><strong>Placeholder scan:</strong> every code step has complete code; the only deferred values are the empirically-tuned cadence numbers, which the spec explicitly designates as measure-don't-guess (T7 S3 gives the exact rule and where to record them) — not a placeholder.</p>
+    <p><strong>Type/name consistency:</strong> <code>TranscriptState(committed, tail)</code>, <code>.full</code>, <code>StreamingTranscriber.feed/step/finalize</code>, <code>IncrementalTyper(typer, max_backspaces, is_paused)</code>/<code>.update</code>/<code>.flush</code>/<code>.append_only</code>, daemon <code>_stream_tick</code>/<code>_stream_loop</code>/<code>_last_consumed</code>, config <code>stream_window</code>/<code>stream_overlap</code>/<code>stream_slide_interval</code> — used identically across T1–T7.</p>
+    <p><strong>Note carried into execution:</strong> T1 Step 3 flags a fixture correction for <code>test_finalize_commits_tail</code> (3-element scripted iterator + normalized assertion); apply as written.</p>
+  </section>
+
+  <footer>single self-contained file · no external dependencies</footer>
+
+</div>
+</body>
+</html>
