@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-18
+
+### Added
+- **Explicit Language Selection**: New option to pin the Whisper transcription language instead of relying on auto-detection.
+- **Zero-Argument Daemon**: Running `harp` with no arguments now starts the daemon directly.
+
+### Changed
+- Updated CLI reference and README for v0.5.1 and the new features.
+
 ## [0.5.1] - 2026-03-11
 
 ### Fixed
