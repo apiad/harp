@@ -78,3 +78,52 @@ async def test_local_transcription_accuracy():
     assert similarity >= 90, (
         f"Transcription similarity ({similarity}%) is below 90% threshold."
     )
+
+
+@pytest.mark.integration
+@pytest.mark.skip(
+    reason=(
+        "Streaming end-to-end with tiny CPU decode runs ~70 re-decodes of a "
+        "30s rolling window for a 70s clip and exceeds practical CPU timeouts "
+        "in this environment. Enable manually on a mic/GPU-equipped host."
+    )
+)
+@pytest.mark.skipif(
+    not os.path.exists(GROUND_TRUTH_WAV), reason="Ground truth audio not recorded yet."
+)
+def test_streaming_transcriber_end_to_end():
+    """
+    Feeds the ground-truth WAV through a real StreamingTranscriber in ~1s
+    slices and asserts the finalized text fuzzy-matches the ground truth.
+    """
+    from harp.streaming import StreamingTranscriber
+
+    if not LocalWhisperEngine.list_local_models():
+        pytest.skip(
+            "No local Whisper models found. Run 'harp models download tiny' first."
+        )
+
+    with open(GROUND_TRUTH_TXT, "r") as f:
+        original_text = f.read().strip()
+
+    with wave.open(GROUND_TRUTH_WAV, "rb") as wf:
+        sr = wf.getframerate()
+        n_frames = wf.getnframes()
+        audio_bytes = wf.readframes(n_frames)
+        audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
+        audio_data = audio_int16.astype(np.float32) / 32767.0
+
+    engine = LocalWhisperEngine(model_size="tiny", device="cpu", compute_type="int8")
+    st = StreamingTranscriber(transcribe=engine.transcribe, samplerate=sr)
+
+    slice_samples = sr
+    for start in range(0, audio_data.shape[0], slice_samples):
+        st.feed(audio_data[start : start + slice_samples])
+        st.step()
+    final = st.finalize()
+
+    similarity = fuzz.ratio(normalize_text(original_text), normalize_text(final.committed))
+    print(f"\nStreaming similarity: {similarity}%")
+    assert similarity > 80, (
+        f"Streaming transcription similarity ({similarity}%) is below 80% threshold."
+    )

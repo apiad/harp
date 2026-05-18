@@ -53,7 +53,7 @@ def test_finalize_commits_tail():
 
 
 def test_step_on_empty_buffer_is_safe():
-    st = StreamingTranscriber(transcribe=lambda a, p, l: "x")
+    st = StreamingTranscriber(transcribe=lambda a, p, lang: "x")
     s = st.step()
     assert s == TranscriptState("", "")
 

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Real-Time Streaming Dictation** (slice A): a new `StreamingTranscriber` re-decodes a rolling audio window and commits stable text using LocalAgreement-2 (word-level agreement across consecutive re-decodes). The daemon runs a single streaming session per `Ctrl+Space` press and types the committed prefix live.
+- **Back-Patch Typing** (`IncrementalTyper`): emits the minimal `backspace + retype` diff each tick so the typed buffer always reflects the latest best transcription, with a configurable backspace cap and pause-defer guard.
+- **`--slide` flag / `stream_slide_interval` config**: tunable cadence between re-decode passes (default `1.0s`). New `stream_window` (default `30.0s`) and `stream_overlap` (default `5.0s`) knobs for the rolling buffer.
+
+### Removed (BREAKING)
+- **Cloud LLM integration** and the `openai` dependency: no more `HARP_LLM_API_KEY` / `HARP_LLM_BASE_URL` / `HARP_LLM_MODEL`, no `LLMClient`, no `src/harp/api.py`.
+- **Command Mode** (`Ctrl+Shift+Space`): removed entirely along with `--send-clipboard` and `--command-prompt`.
+- **`--continuous` flag** and the background batch transcription loop: superseded by always-on streaming dictation.
+
+### Notes
+- Live cadence tuning per microphone/model is a pending follow-up; the shipped `1.0s` default is a sensible placeholder. Tune up if your single-window decode time approaches the slide.
+- Slices B (custom hotkeys / VAD) and D (post-processing hooks) of the broader dictation redesign remain open.
+
 ## [0.6.0] - 2026-05-18
 
 ### Added

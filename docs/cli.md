@@ -3,7 +3,7 @@
 The `harp` command is the main entry point for starting the daemon and managing its configuration and models. Running `harp` without any arguments is equivalent to running `harp start`.
 
 ## `harp start`
-Starts the background daemon listening for hotkeys.
+Starts the background daemon listening for hotkeys. Harp now runs a single **real-time streaming dictation** mode: while you hold (or, with `--toggle`, after you click) `Ctrl+Space`, audio is re-decoded over a rolling window using LocalAgreement-2, and the stable prefix is typed live with minimal backspace+retype back-patches as the model revises.
 
 ### Options
 | Flag | Description |
@@ -11,14 +11,15 @@ Starts the background daemon listening for hotkeys.
 | `-d, --device` | Path or name of the input device (e.g., `/dev/input/event0`). |
 | `-t, --toggle` | Use toggle mode (click to start, click to stop) instead of hold mode. |
 | `-f, --full` | Type all characters including symbols (opt-in; default is safe mode). |
-| `-c, --continuous` | Enable continuous background transcription for long recordings. |
 | `-l, --language` | Language code for STT (e.g., `en`, `es`). Default: `auto`. |
 | `--local-device` | Hardware device for STT (`cpu`, `cuda`, `auto`). Default: `auto`. |
 | `--local-compute-type` | Model quantization (`int8`, `float16`, `float32`, `default`). Default: `default`. |
 | `--type / --no-type` | Enable or disable typing results (default is disable). |
 | `--copy / --no-copy` | Enable or disable copying results to clipboard (default is disable). |
-| `--send-clipboard <num>` | Number of tokens from clipboard to send in Command Mode. |
-| `--command-prompt` | Override the default command mode prompt. |
+| `--slide <seconds>` | Cadence between streaming re-decode passes. Default: `1.0`. Tune up if your decode wall-time exceeds the slide (see below). |
+
+### Streaming cadence (`--slide`)
+The streaming loop re-decodes the rolling window every `stream_slide_interval` seconds. For stability, the slide must comfortably exceed the single-window decode time on your machine — rule of thumb: `slide ≥ 1.3 × decode`. The shipped default (`1.0s`) is a placeholder; **live cadence tuning on a mic-equipped host is a pending follow-up**. If you observe queuing or stuttering with `medium`/`large-v3` on CPU, raise `--slide` (or set `stream_slide_interval` in `.harp.yaml`).
 
 ### Hardware Settings Guide
 - **`--local-device auto`**: Harp will attempt to use CUDA if an NVIDIA GPU is found, otherwise it defaults to CPU.
@@ -27,17 +28,17 @@ Starts the background daemon listening for hotkeys.
 
 ### Usage Examples
 ```bash
-# Start with defaults (Hold Ctrl+Space to record, print to CLI)
+# Start with defaults (Hold Ctrl+Space to dictate live; print to CLI)
 harp
 
-# Explicitly force CPU mode if GPU libraries are missing
-harp --local-device cpu
-
-# Toggle mode with full character support and auto-typing
+# Type live into the focused window, toggle mode, full symbols
 harp start --toggle --full --type
 
-# Only copy to clipboard, don't type
-harp start --copy
+# Raise the re-decode cadence to 1.5s on slower CPUs
+harp start --slide 1.5
+
+# Force CPU mode if GPU libraries are missing
+harp --local-device cpu
 ```
 
 ## `harp models`

@@ -23,7 +23,12 @@ Put done tasks into the Archive.
 ### AI Features
 - [ ] Add support for local Whisper models (faster-whisper/whisper.cpp) (#7)
 - [ ] Implement 'Prompt Presets' for different command variants (#8)
-- [ ] Add post-processing hooks for transcribed text (#9)
+- [ ] Add post-processing hooks for transcribed text (#9) — deferred to slice D of the dictation redesign
+
+### Dictation (streaming redesign follow-ups)
+- [ ] Slice B — custom hotkeys / VAD-driven auto-stop for streaming sessions
+- [ ] Slice D — post-processing hooks layered on top of the committed prefix
+- [ ] Live empirical tuning of `stream_slide_interval` per model/device (needs a mic-equipped host)
 
 ### Infrastructure
 - [ ] Implement Voice Activity Detection (VAD) for auto-stop (#10)
@@ -50,3 +55,4 @@ Put done tasks into the Archive.
 - [x] Implement voice-based integration test (#14) (See plan: `plans/voice-integration-test.md`) (2026-03-04)
 - [x] Implement CLI overhaul and YAML configuration system (See plan: `plans/cli-overhaul-config.md`) (2026-03-11)
 - [x] Implement local-first Whisper refactor and high-speed concurrent transcription (See plan: `plans/local-first-whisper-refactor.md`) (2026-03-11)
+- [x] Real-time streaming dictation with back-patch typing + removal of cloud LLM/command mode (See plan: `docs/superpowers/plans/2026-05-18-streaming-backpatch-dictation-plan.html`) (2026-05-18)
