@@ -19,7 +19,6 @@ def daemon() -> HarpDaemon:
     with (
         patch("harp.daemon.AudioStreamer"),
         patch("harp.daemon.WaylandTyper"),
-        patch("harp.daemon.LLMClient"),
         patch("harp.daemon.LocalWhisperEngine"),
         patch("harp.daemon.HarpConfig"),
     ):

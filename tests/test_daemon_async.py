@@ -1,9 +1,9 @@
 """
-Asynchronous tests for the Harpo daemon.
+Asynchronous tests for the Harp daemon.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -19,14 +19,12 @@ def async_daemon() -> HarpDaemon:
     with (
         patch("harp.daemon.AudioStreamer"),
         patch("harp.daemon.WaylandTyper"),
-        patch("harp.daemon.LLMClient"),
         patch("harp.daemon.LocalWhisperEngine"),
         patch("harp.daemon.HarpConfig"),
     ):
         from harp.config import HarpConfig
 
         daemon = HarpDaemon(config=HarpConfig())
-        # Ensure UI console is mocked to avoid output clutter
         daemon.console = MagicMock()
         daemon._notify = MagicMock()
         return daemon
@@ -41,7 +39,6 @@ async def test_handle_events_ctrl_space(async_daemon: HarpDaemon) -> None:
 
     mock_device = MagicMock(spec=evdev.InputDevice)
 
-    # Sequence of events: Ctrl Down, Space Down, Space Up, Ctrl Up
     events = [
         MagicMock(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_LEFTCTRL, value=1),
         MagicMock(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_SPACE, value=1),
@@ -49,107 +46,67 @@ async def test_handle_events_ctrl_space(async_daemon: HarpDaemon) -> None:
         MagicMock(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_LEFTCTRL, value=0),
     ]
 
-    # Convert to a mock iterator for async for
     async def mock_event_loop():
         for e in events:
             yield e
-        # stop the loop by raising CancelledError or just finishing
         raise asyncio.CancelledError()
 
     mock_device.async_read_loop.return_value = mock_event_loop()
 
-    # Run handler in a task
     task = asyncio.create_task(async_daemon._handle_events(mock_device))
 
-    # Give it some time to process
     await asyncio.sleep(0.1)
     task.cancel()
 
-    # Verify that it entered recording state (non-toggle mode starts on key down)
-    assert async_daemon.state != DaemonState.IDLE
+    # Recording was triggered on key-down (it may have completed back to IDLE on space-up).
+    assert async_daemon.audio_streamer.start_recording.called
 
 
 @pytest.mark.asyncio
-async def test_stop_recording_success(async_daemon: HarpDaemon) -> None:
-    """
-    Verifies full transcription process on stop.
-    """
+async def test_streaming_session_types_committed_text(async_daemon):
     async_daemon.config.type_result = True
-    async_daemon.state = DaemonState.RECORDING
-    async_daemon.audio_streamer.stop_recording.return_value = np.array(
-        [[0.1]], dtype=np.float32
-    )
+    async_daemon.config.copy_result = False
+    async_daemon.config.stream_window = 30.0
+    async_daemon.config.stream_overlap = 5.0
+    async_daemon.config.stream_slide_interval = 10.0
+    async_daemon.config.local_language = None
+    hypotheses = ["the cat", "the cat sat", "the cat sat down"]
+    counter = {"i": 0}
 
-    # Mock whisper engine transcribe (called via executor)
-    async_daemon.whisper_engine.transcribe.return_value = "Final result"
+    def fake_transcribe(*a, **k):
+        i = min(counter["i"], len(hypotheses) - 1)
+        counter["i"] += 1
+        return hypotheses[i]
 
-    # Mock typer
+    async_daemon.whisper_engine.transcribe.side_effect = fake_transcribe
     async_daemon.typer.filter_text.side_effect = lambda x: x
+    chunk = np.zeros(16000, dtype=np.float32)
+    async_daemon.audio_streamer.get_current_buffer.return_value = chunk
+    async_daemon.audio_streamer.stop_recording.return_value = chunk
 
+    async_daemon._start_recording()
+    for _ in range(3):
+        await async_daemon._stream_tick()
     await async_daemon._stop_recording()
 
     assert async_daemon.state == DaemonState.IDLE
-    async_daemon.typer.type_text.assert_called_with("Final result")
-
-
-@pytest.mark.asyncio
-async def test_stop_recording_command_mode(async_daemon: HarpDaemon) -> None:
-    """
-    Verifies command mode processing via LLMClient.
-    """
-    async_daemon.config.type_result = True
-    async_daemon._is_command_mode = True
-    async_daemon.state = DaemonState.RECORDING
-    async_daemon.audio_streamer.stop_recording.return_value = np.array(
-        [[0.1]], dtype=np.float32
+    typed = "".join(
+        c.args[0] for c in async_daemon.typer.type_text.call_args_list
     )
-
-    # Mock whisper engine transcribe
-    async_daemon.whisper_engine.transcribe.return_value = "Run command"
-
-    # Mock LLM client
-    async_daemon.llm_client.process_text = AsyncMock(return_value="Command Output")
-
-    # Mock typer
-    async_daemon.typer.filter_text.side_effect = lambda x: x
-
-    await async_daemon._stop_recording()
-
-    assert async_daemon.state == DaemonState.IDLE
-    async_daemon.llm_client.process_text.assert_called_once()
-    async_daemon.typer.type_text.assert_called_with("Command Output")
+    assert "the cat sat down" in typed.replace("  ", " ")
 
 
 @pytest.mark.asyncio
-async def test_background_transcription_loop_continuous(
-    async_daemon: HarpDaemon,
-) -> None:
-    """
-    Verifies the incremental chunking logic in the background loop.
-    """
-    async_daemon.config.continuous = True
-    async_daemon.config.stt_min_chunk_size = 0.1
-    async_daemon.config.stt_slide_interval = 0.1
-    async_daemon.config.stt_overlap = 0.05
-    async_daemon.state = DaemonState.RECORDING
-
-    # Mock audio buffer: 16000 samples/sec * 0.5s = 8000 samples
-    audio_data = np.zeros(8000, dtype=np.float32)
-    async_daemon.audio_streamer.get_current_buffer.return_value = audio_data
-
-    # Mock whisper engine transcribe
-    async_daemon.whisper_engine.transcribe.return_value = "Incremental result"
-
-    # Start loop in a task
-    loop_task = asyncio.create_task(async_daemon._background_transcription_loop())
-
-    # Give it some time to run at least one pass
-    await asyncio.sleep(0.7)
-
-    # Stop recording to end the loop
-    async_daemon.state = DaemonState.IDLE
-    await loop_task
-
-    # Verify that transcribe was called
-    assert async_daemon.whisper_engine.transcribe.called
-    assert async_daemon._latest_transcription == "Incremental result"
+async def test_streaming_tick_survives_transcribe_error(async_daemon):
+    async_daemon.config.type_result = True
+    async_daemon.config.stream_window = 30.0
+    async_daemon.config.stream_overlap = 5.0
+    async_daemon.config.local_language = None
+    async_daemon.whisper_engine.transcribe.side_effect = RuntimeError("boom")
+    async_daemon.typer.filter_text.side_effect = lambda x: x
+    async_daemon.audio_streamer.get_current_buffer.return_value = np.zeros(
+        16000, dtype=np.float32
+    )
+    async_daemon._start_recording()
+    await async_daemon._stream_tick()
+    assert async_daemon.state == DaemonState.RECORDING

@@ -3,7 +3,6 @@ Core logic for managing states and the background daemon loop.
 """
 
 import asyncio
-import re
 import subprocess
 import time
 from enum import Enum, auto
@@ -11,17 +10,16 @@ from typing import Optional
 
 import evdev
 import numpy as np
-import pyperclip
 import sounddevice as sd
 from pynput import keyboard
 from rich.console import Console
 from rich.status import Status
 from rich.panel import Panel
 
-from harp.api import LLMClient
 from harp.audio import AudioStreamer
 from harp.config import HarpConfig
-from harp.input import WaylandTyper
+from harp.input import IncrementalTyper, WaylandTyper
+from harp.streaming import StreamingTranscriber
 from harp.whisper import LocalWhisperEngine
 
 
@@ -41,17 +39,10 @@ class HarpDaemon:
     """
 
     def __init__(self, config: HarpConfig) -> None:
-        """
-        Initializes the HarpDaemon with its components and state.
-
-        Args:
-            config: The HarpConfig instance containing all settings.
-        """
         self.config = config
         self.state: DaemonState = DaemonState.IDLE
         self._keys_pressed: set[int] = set()
         self._suppressed_keys: set[int] = set()
-        self._is_command_mode: bool = False
         self._uinput_device: evdev.UInput | None = None
         self._grabbed_devices: list[evdev.InputDevice] = []
         self.audio_streamer = AudioStreamer()
@@ -72,14 +63,13 @@ class HarpDaemon:
             compute_type=self.config.local_compute_type,
         )
 
-        self.llm_client = LLMClient(
-            api_key=self.config.llm_api_key,
-            base_url=self.config.llm_base_url,
+        # Streaming components (recreated each session).
+        self._transcriber: Optional[StreamingTranscriber] = None
+        self._inc_typer = IncrementalTyper(
+            self.typer, is_paused=lambda: self.pause_typing
         )
-
-        # Background Transcription Task
-        self._transcription_task: Optional[asyncio.Task] = None
-        self._latest_transcription: str = ""
+        self._stream_task: Optional[asyncio.Task] = None
+        self._last_consumed: int = 0
 
     @property
     def pause_typing(self) -> bool:
@@ -95,14 +85,6 @@ class HarpDaemon:
         self._last_user_typing_time = time.time()
 
     def _notify(self, title: str, message: str) -> None:
-        """
-        Sends a desktop notification using notify-send.
-
-        Args:
-            title: The title of the notification.
-            message: The message body of the notification.
-        """
-        # Truncate message to avoid huge notifications
         if len(message) > 200:
             message = message[:197] + "..."
         try:
@@ -112,78 +94,24 @@ class HarpDaemon:
                 capture_output=True,
             )
         except FileNotFoundError:
-            # notify-send not available, ignore
             pass
 
     def _play_chime(self, start: bool) -> None:
-        """
-        Plays a small audio chime. High pitch for start, low pitch for stop.
-        """
         try:
             sample_rate = 44100
             duration = 0.1
             t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-
-            # Start: 880 Hz, Stop: 440 Hz
             freq = 880.0 if start else 440.0
-
-            # Simple envelope to avoid clicking
             envelope = np.ones_like(t)
             ramp = int(0.01 * sample_rate)
             envelope[:ramp] = np.linspace(0, 1, ramp)
             envelope[-ramp:] = np.linspace(1, 0, ramp)
-
             wave = 0.5 * np.sin(2 * np.pi * freq * t) * envelope
-
-            # Play non-blocking
             sd.play(wave, sample_rate)
         except Exception as e:
             self.console.print(f"[yellow]Failed to play chime: {e}[/]")
 
-    def _get_clipboard_context(self, tokens_to_get: int) -> str | None:
-        """
-        Reads the clipboard and returns the last `tokens_to_get` words.
-        Attempts to cut at a sentence boundary.
-        """
-        try:
-            text = pyperclip.paste()
-            if not text:
-                return None
-
-            # Split by whitespace, preserving it
-            tokens = re.split(r"(\s+)", text)
-
-            word_tokens = [t for t in tokens if t.strip()]
-            if len(word_tokens) <= tokens_to_get:
-                return text.strip()
-
-            words_found = 0
-            start_index = 0
-            for i in range(len(tokens) - 1, -1, -1):
-                if tokens[i].strip():
-                    words_found += 1
-                if words_found == tokens_to_get:
-                    start_index = i
-                    break
-
-            truncated = "".join(tokens[start_index:]).lstrip()
-
-            # Look for sentence boundary: punctuation followed by space and uppercase
-            match = re.search(r"[.!?]\s+([A-Z])", truncated)
-            if match:
-                # Cut at the start of the uppercase letter
-                return truncated[match.start(1) :]
-            else:
-                return f"[...] {truncated}"
-
-        except Exception as e:
-            self.console.print(f"[yellow]Failed to read clipboard: {e}[/]")
-            return None
-
     def _release_modifiers(self) -> None:
-        """
-        Ensures all modifier keys are logically UP on the virtual passthrough device.
-        """
         if not self._uinput_device:
             return
 
@@ -202,211 +130,105 @@ class HarpDaemon:
             self._uinput_device.write(evdev.ecodes.EV_KEY, mod, 0)
         self._uinput_device.syn()
 
-    async def _background_transcription_loop(self) -> None:
-        """
-        Periodically transcribes new audio chunks when continuous mode is enabled.
-        """
-        if not self.config.continuous:
-            return
-
-        sample_rate = 16000
-        transcribed_seconds = 0.0
-
-        while self.state == DaemonState.RECORDING:
-            await asyncio.sleep(0.5)
-
-            # Get full audio data
-            audio_data = self.audio_streamer.get_current_buffer()
-            current_duration = audio_data.size / sample_rate
-
-            # Should we transcribe?
-            should_transcribe = False
-            if transcribed_seconds == 0:
-                # First pass after min_chunk_size
-                if current_duration >= self.config.stt_min_chunk_size:
-                    should_transcribe = True
-            else:
-                # Subsequent passes after slide_interval
-                if (
-                    current_duration - transcribed_seconds
-                    >= self.config.stt_slide_interval
-                ):
-                    should_transcribe = True
-
-            if not should_transcribe:
-                continue
-
-            # Calculate chunk to transcribe (with overlap)
-            start_sec = max(0, transcribed_seconds - self.config.stt_overlap)
-            start_idx = int(start_sec * sample_rate)
-            chunk = audio_data.flatten()[start_idx:]
-
-            if chunk.size == 0:
-                continue
-
-            try:
-                loop = asyncio.get_event_loop()
-                # Use latest transcription as prompt for consistency
-                # Limit prompt size to avoid token bloat
-                prompt = (
-                    self._latest_transcription[-200:]
-                    if self._latest_transcription
-                    else None
-                )
-
-                new_text = await loop.run_in_executor(
-                    None,
-                    self.whisper_engine.transcribe,
-                    chunk,
-                    prompt,
-                    self.config.local_language,
-                )
-
-                if new_text:
-                    # Simple stitching: for background feedback, we just update the latest
-                    # because we will do a full high-accuracy pass at the end anyway.
-                    # We print it dimmed to the console.
-                    self._latest_transcription = new_text
-                    self.console.print(f"[dim]... {new_text}[/dim]")
-
-                transcribed_seconds = current_duration
-
-            except Exception:
-                # Silently ignore background errors
-                pass
-
     def _start_recording(self) -> None:
-        """
-        Transitions to RECORDING and starts audio capture.
-        """
-        if self.state == DaemonState.IDLE:
-            self._latest_transcription = ""
-            self.state = DaemonState.RECORDING
-            self._play_chime(start=True)
-            self.audio_streamer.start_recording()
+        if self.state != DaemonState.IDLE:
+            return
+        self.state = DaemonState.RECORDING
+        self._play_chime(start=True)
+        self.audio_streamer.start_recording()
+        self._transcriber = StreamingTranscriber(
+            transcribe=self.whisper_engine.transcribe,
+            window=self.config.stream_window,
+            overlap=self.config.stream_overlap,
+            language=self.config.local_language,
+        )
+        self._inc_typer = IncrementalTyper(
+            self.typer, is_paused=lambda: self.pause_typing
+        )
+        self._last_consumed = 0
+        try:
+            self._stream_task = asyncio.create_task(self._stream_loop())
+        except RuntimeError:
+            # No running loop (e.g. invoked from sync context in tests).
+            self._stream_task = None
+        self.console.print("[bold green]capturing...[/]")
+        self._notify("Status", "capturing")
 
-            # Start background transcription
-            self._transcription_task = asyncio.create_task(
-                self._background_transcription_loop()
-            )
+    async def _stream_tick(self) -> None:
+        if self._transcriber is None:
+            return
+        buf = self.audio_streamer.get_current_buffer().flatten()
+        new = buf[self._last_consumed:]
+        self._last_consumed = buf.shape[0]
+        if new.size:
+            self._transcriber.feed(new)
+        try:
+            loop = asyncio.get_running_loop()
+            state = await loop.run_in_executor(None, self._transcriber.step)
+        except Exception:
+            return
+        if self.config.type_result:
+            self._inc_typer.update(state.full)
 
-            mode_str = "command" if self._is_command_mode else "capturing"
-            self.console.print(f"[bold green]{mode_str}...[/]")
-            self._notify("Status", mode_str)
+    async def _stream_loop(self) -> None:
+        try:
+            while self.state == DaemonState.RECORDING:
+                await asyncio.sleep(self.config.stream_slide_interval)
+                await self._stream_tick()
+        except asyncio.CancelledError:
+            pass
 
     async def _stop_recording(self) -> None:
-        """
-        Transitions to PROCESSING, stops capture, and transcribes.
-        """
-        if self.state == DaemonState.RECORDING:
-            self.state = DaemonState.PROCESSING
-            self._play_chime(start=False)
-
-            # Cancel background task and get final audio
-            if self._transcription_task:
-                self._transcription_task.cancel()
-
-            audio_data = self.audio_streamer.stop_recording()
-            self.console.print("[bold blue]idle[/]")
-            self._notify("Status", "idle")
-
-            if audio_data.size > 0:
-                with self.console.status(
-                    "[bold blue]Finalizing transcription...[/]"
-                ) as status:
+        if self.state != DaemonState.RECORDING:
+            return
+        self.state = DaemonState.PROCESSING
+        self._play_chime(start=False)
+        if self._stream_task:
+            self._stream_task.cancel()
+            self._stream_task = None
+        audio = self.audio_streamer.stop_recording().flatten()
+        if self._transcriber is not None:
+            extra = audio[self._last_consumed:]
+            if extra.size:
+                self._transcriber.feed(extra)
+            try:
+                loop = asyncio.get_running_loop()
+                final = await loop.run_in_executor(
+                    None, self._transcriber.finalize
+                )
+            except Exception as e:
+                self.console.print(f"[bold red]Finalize failed: {e}[/]")
+                final = None
+            if final is not None:
+                text = final.committed.strip()
+                self.console.print(
+                    Panel(
+                        f"[italic green]{text}[/]",
+                        title="[bold cyan]Result[/]",
+                        border_style="cyan",
+                    )
+                )
+                self._notify("Transcription Ready", text)
+                if self.config.copy_result and text:
                     try:
-                        # Perform final transcription of the full buffer
-                        # We use run_in_executor to keep UI responsive
-                        loop = asyncio.get_running_loop()
-                        transcription = await loop.run_in_executor(
-                            None,
-                            self.whisper_engine.transcribe,
-                            audio_data.flatten(),
-                            None,
-                            self.config.local_language,
-                        )
+                        import pyperclip
 
-                        if not transcription:
-                            transcription = self._latest_transcription
-
-                        if self._is_command_mode:
-                            instruction = self.config.command_prompt
-
-                            if self.config.send_clipboard > 0:
-                                context = self._get_clipboard_context(
-                                    self.config.send_clipboard
-                                )
-                                if context:
-                                    instruction += f"\n\nHere is context from clipboard:\n<context>\n{context}\n</context>"
-
-                            self.console.print(
-                                Panel(
-                                    f"[dim]{instruction}[/dim]",
-                                    title="[cyan]Instruction[/]",
-                                    border_style="cyan",
-                                )
-                            )
-
-                            status.update(
-                                "[bold blue]Processing command with LLM...[/]"
-                            )
-                            transcription = await self.llm_client.process_text(
-                                text=transcription,
-                                instruction=instruction,
-                                model=self.config.llm_model,
-                            )
-
-                        # ALWAYS print to CLI
-                        self.console.print(
-                            Panel(
-                                f"[italic green]{transcription}[/]",
-                                title="[bold cyan]Result[/]",
-                                border_style="cyan",
-                            )
-                        )
-                        self._notify("Transcription Ready", transcription)
-
-                        if self.config.copy_result:
-                            try:
-                                pyperclip.copy(transcription)
-                                self.console.print(
-                                    "[bold green]Copied to clipboard![/]"
-                                )
-                            except Exception as e:
-                                self.console.print(f"[yellow]Failed to copy: {e}[/]")
-
-                        await asyncio.sleep(0.5)
-                        self._release_modifiers()
-
-                        if self.config.type_result:
-                            filtered_final = self.typer.filter_text(transcription)
-                            if filtered_final:
-                                status.update("[bold cyan]Typing result...[/]")
-                                self.typer.type_text(filtered_final)
-
+                        pyperclip.copy(text)
                     except Exception as e:
-                        error_msg = f"Transcription or typing failed: {e}"
-                        self.console.print(f"[bold red]{error_msg}[/]")
-                        self._notify("Error", error_msg)
-
-            self.state = DaemonState.IDLE
+                        self.console.print(f"[yellow]Copy failed: {e}[/]")
+                if self.config.type_result:
+                    self._release_modifiers()
+                    self._inc_typer.update(text)
+        self.state = DaemonState.IDLE
+        self._notify("Status", "idle")
 
     async def _toggle_state(self) -> None:
-        """
-        Toggles the daemon state between IDLE and RECORDING.
-        """
         if self.state == DaemonState.IDLE:
             self._start_recording()
         elif self.state == DaemonState.RECORDING:
             await self._stop_recording()
 
     async def _handle_events(self, device: evdev.InputDevice) -> None:
-        """
-        Processes key events from a specific evdev device.
-
-        Args:
-            device: The evdev input device to listen to.
-        """
         try:
             async for event in device.async_read_loop():
                 if event.type == evdev.ecodes.EV_KEY:
@@ -422,28 +244,17 @@ class HarpDaemon:
                         evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed
                         or evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed
                     )
-                    is_shift = (
-                        evdev.ecodes.KEY_LEFTSHIFT in self._keys_pressed
-                        or evdev.ecodes.KEY_RIGHTSHIFT in self._keys_pressed
-                    )
                     is_space = evdev.ecodes.KEY_SPACE in self._keys_pressed
 
                     should_suppress = False
 
                     if is_ctrl and is_space:
-                        if self.state == DaemonState.IDLE:
-                            self._is_command_mode = is_shift
-
                         self._release_modifiers()
 
                         if evdev.ecodes.KEY_LEFTCTRL in self._keys_pressed:
                             self._suppressed_keys.add(evdev.ecodes.KEY_LEFTCTRL)
                         if evdev.ecodes.KEY_RIGHTCTRL in self._keys_pressed:
                             self._suppressed_keys.add(evdev.ecodes.KEY_RIGHTCTRL)
-                        if evdev.ecodes.KEY_LEFTSHIFT in self._keys_pressed:
-                            self._suppressed_keys.add(evdev.ecodes.KEY_LEFTSHIFT)
-                        if evdev.ecodes.KEY_RIGHTSHIFT in self._keys_pressed:
-                            self._suppressed_keys.add(evdev.ecodes.KEY_RIGHTSHIFT)
                         self._suppressed_keys.add(evdev.ecodes.KEY_SPACE)
 
                         if self.config.toggle:
@@ -476,10 +287,6 @@ class HarpDaemon:
 
     @staticmethod
     def _is_real_keyboard(device: evdev.InputDevice) -> bool:
-        """
-        Narrowly defines a keyboard as having standard letter keys (A-Z)
-        and excluding our own virtual devices.
-        """
         if "Harp Virtual" in device.name:
             return False
 
@@ -493,9 +300,6 @@ class HarpDaemon:
         return all(k in keys for k in range(evdev.ecodes.KEY_A, evdev.ecodes.KEY_Z + 1))
 
     async def _main_loop(self) -> None:
-        """
-        The asynchronous main loop of the daemon.
-        """
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
         keyboards = [d for d in devices if self._is_real_keyboard(d)]
 
@@ -542,9 +346,6 @@ class HarpDaemon:
             self._cleanup()
 
     def _cleanup(self) -> None:
-        """
-        Ensures all devices are ungrabbed and uinput is closed.
-        """
         if self._keyboard_listener:
             try:
                 self._keyboard_listener.stop()
@@ -567,9 +368,6 @@ class HarpDaemon:
             self._uinput_device = None
 
     def run(self) -> None:
-        """
-        Entry point to start the asynchronous event loop.
-        """
         self._keyboard_listener = keyboard.Listener(on_press=self._on_press)
         self._keyboard_listener.start()
 

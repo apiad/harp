@@ -6,3 +6,6 @@ from unittest.mock import MagicMock
 mock_pynput = MagicMock()
 sys.modules["pynput"] = mock_pynput
 sys.modules["pynput.keyboard"] = mock_pynput.keyboard
+
+# Mock sounddevice to avoid requiring PortAudio in headless test environments.
+sys.modules.setdefault("sounddevice", MagicMock())
