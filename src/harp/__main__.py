@@ -39,9 +39,7 @@ def run_daemon(
     full_mode: Optional[bool] = None,
     type_result: Optional[bool] = None,
     copy_result: Optional[bool] = None,
-    send_clipboard: Optional[int] = None,
-    command_prompt: Optional[str] = None,
-    continuous: Optional[bool] = None,
+    stream_slide_interval: Optional[float] = None,
     local_device: Optional[str] = None,
     local_compute_type: Optional[str] = None,
     local_language: Optional[str] = None,
@@ -56,9 +54,7 @@ def run_daemon(
         "full_mode": full_mode,
         "type": type_result,
         "copy": copy_result,
-        "send_clipboard": send_clipboard,
-        "command_prompt": command_prompt,
-        "continuous": continuous,
+        "stream_slide_interval": stream_slide_interval,
         "local_device": local_device,
         "local_compute_type": local_compute_type,
         "local_language": local_language,
@@ -109,16 +105,8 @@ def start(
     copy_result: Optional[bool] = typer.Option(
         None, "--copy", help="Copy the transcription result to the clipboard"
     ),
-    send_clipboard: Optional[int] = typer.Option(
-        None,
-        "--send-clipboard",
-        help="Tokens to send from clipboard context in command mode",
-    ),
-    command_prompt: Optional[str] = typer.Option(
-        None, "--command-prompt", help="Custom prompt for command mode"
-    ),
-    continuous: Optional[bool] = typer.Option(
-        None, "--continuous", "-c", help="Enable continuous background transcription"
+    stream_slide_interval: Optional[float] = typer.Option(
+        None, "--slide", help="Seconds between streaming re-decode passes"
     ),
     local_device: Optional[str] = typer.Option(
         None, "--local-device", help="Device for local STT (cpu, cuda, auto)"
@@ -144,9 +132,7 @@ def start(
         full_mode=full,
         type_result=type_result,
         copy_result=copy_result,
-        send_clipboard=send_clipboard,
-        command_prompt=command_prompt,
-        continuous=continuous,
+        stream_slide_interval=stream_slide_interval,
         local_device=local_device,
         local_compute_type=local_compute_type,
         local_language=language,

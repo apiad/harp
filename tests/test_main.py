@@ -91,9 +91,6 @@ def test_cli_start_custom(
             "--full",
             "--type",
             "--copy",
-            "--send-clipboard",
-            "1000",
-            "--continuous",
             "--local-device",
             "cpu",
             "--local-compute-type",
@@ -109,8 +106,6 @@ def test_cli_start_custom(
     assert overrides["full_mode"] is True
     assert overrides["type"] is True
     assert overrides["copy"] is True
-    assert overrides["send_clipboard"] == 1000
-    assert overrides["continuous"] is True
     assert overrides["local_device"] == "cpu"
     assert overrides["local_compute_type"] == "float32"
 
@@ -124,12 +119,12 @@ def test_cli_config_command() -> None:
     """
     with patch("harp.__main__.load_config") as mock_load:
         mock_config = MagicMock()
-        mock_config.model_dump.return_value = {"llm_api_key": "test"}
+        mock_config.model_dump.return_value = {"stream_slide_interval": 1.0}
         mock_load.return_value = mock_config
 
         result = runner.invoke(app, ["config"])
         assert result.exit_code == 0
-        assert "llm_api_key: test" in result.output
+        assert "stream_slide_interval: 1.0" in result.output
 
 
 def test_cli_init_command() -> None:
