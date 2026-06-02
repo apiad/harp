@@ -1,126 +1,99 @@
-"""
-Audio streaming and capturing logic.
-"""
+"""Audio source abstraction and microphone implementation."""
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Protocol, runtime_checkable
+import queue
+from typing import Any, Iterable, Optional, Protocol, runtime_checkable
 
-import numpy as np
 import sounddevice as sd
 
 
 @runtime_checkable
 class AudioSource(Protocol):
-    """Yields PCM int16 mono frames until exhausted or closed.
+    """Yields PCM int16 mono frames until exhausted or closed."""
 
-    Implementations may be blocking (microphone, network stream) or
-    finite (file). ``frames()`` MUST be safe to iterate once and then
-    stop; HarpSession does not seek back.
+    sample_rate: int
+    channels: int
+
+    def frames(self) -> Iterable[bytes]: ...
+
+    def close(self) -> None: ...
+
+
+class MicrophoneSource:
+    """Captures raw PCM audio from the default (or given) input device.
+
+    Frames are yielded as int16 PCM bytes. The sounddevice stream is opened
+    lazily on the first ``frames()`` iteration and closed when ``close()``
+    is called or the iterator is exhausted.
     """
 
     sample_rate: int
     channels: int
 
-    def frames(self) -> Iterable[bytes]:
-        """Yield PCM int16 chunks. Each chunk is a contiguous ``bytes`` buffer.
-
-        Frame size is the source's choice; HarpSession rebuffers internally.
-        """
-        ...
-
-    def close(self) -> None:
-        """Stop producing frames and release OS resources. Idempotent."""
-        ...
-
-
-class AudioStreamer:
-    """
-    Captures raw PCM audio from the microphone.
-    """
-
-    def __init__(self, samplerate: int = 16000) -> None:
-        """
-        Initializes the AudioStreamer.
-
-        Args:
-            samplerate: Sample rate for audio capture (default 16kHz).
-        """
-        self.samplerate: int = samplerate
-        self.audio_buffer: list[np.ndarray] = []
-        self._stream: sd.InputStream | None = None
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        device: Optional[str | int] = None,
+        block_ms: int = 100,
+    ) -> None:
+        self.sample_rate = sample_rate
+        self.channels = 1
+        self._device = device
+        self._block_frames = int(sample_rate * block_ms / 1000)
+        self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
+        self._stream: Optional[sd.InputStream] = None
+        self._closed = False
 
     def _callback(
-        self, indata: np.ndarray, frames: int, time: Any, status: sd.CallbackFlags
+        self, indata: Any, frames: int, time: Any, status: sd.CallbackFlags
     ) -> None:
-        """
-        Sounddevice callback for processing incoming audio chunks.
-        """
-        if status:
-            print(f"Audio Callback Status: {status}")
-        self.audio_buffer.append(indata.copy())
+        # indata is float32 by default; convert to int16 bytes.
+        import numpy as np
 
-    def start_recording(self) -> None:
-        """
-        Starts audio capture using sounddevice.
-        """
-        self.audio_buffer = []
+        int16 = (indata[:, 0] * 32768.0).clip(-32768, 32767).astype(np.int16)
+        self._queue.put(int16.tobytes())
+
+    def frames(self) -> Iterable[bytes]:
+        if self._closed:
+            return iter(())
+        self._stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            dtype="float32",
+            blocksize=self._block_frames,
+            device=self._device,
+            callback=self._callback,
+        )
+        self._stream.start()
+        return self._iter_frames()
+
+    def _iter_frames(self) -> Iterable[bytes]:
         try:
-            self._stream = sd.InputStream(
-                samplerate=self.samplerate,
-                channels=1,
-                dtype="float32",
-                callback=self._callback,
-            )
-            self._stream.start()
-        except Exception as e:
-            print(f"Error starting audio stream: {e}")
+            while not self._closed:
+                item = self._queue.get()
+                if item is None:
+                    return
+                yield item
+        finally:
+            self._stop_stream()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._queue.put(None)
+        self._stop_stream()
+
+    def _stop_stream(self) -> None:
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
             self._stream = None
 
-    def get_current_buffer(self) -> np.ndarray:
-        """
-        Returns the current audio buffer without stopping the stream.
 
-        Returns:
-            A numpy array containing the recorded PCM data so far.
-        """
-        if not self.audio_buffer:
-            return np.array([], dtype=np.float32).reshape(-1, 1)
-        # Note: sounddevice indata is (frames, channels), so we concatenate on axis 0
-        return np.concatenate(self.audio_buffer, axis=0)
-
-    def get_rolling_window(self, seconds: float = 5.0) -> np.ndarray:
-        """
-        Returns the last N seconds of the recorded audio buffer.
-
-        Args:
-            seconds: Duration in seconds to retrieve from the end.
-
-        Returns:
-            A numpy array containing the last N seconds of PCM data.
-        """
-        full_buffer = self.get_current_buffer()
-        if full_buffer.size == 0:
-            return full_buffer
-
-        required_samples = int(seconds * self.samplerate)
-        if full_buffer.shape[0] <= required_samples:
-            return full_buffer
-
-        return full_buffer[-required_samples:]
-
-    def stop_recording(self) -> np.ndarray:
-        """
-        Stops audio capture and returns the buffered audio.
-
-        Returns:
-            A numpy array containing the recorded PCM data.
-        """
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
-
-        data = self.get_current_buffer()
-        self.audio_buffer = []
-        return data
+# TODO(Task 17): remove this alias once daemon.py is deleted.
+AudioStreamer = MicrophoneSource
