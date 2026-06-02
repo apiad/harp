@@ -82,8 +82,84 @@ def run_daemon(
         )
         raise typer.Exit(code=1)
 
-    daemon = HarpDaemon(config=config)
-    daemon.run()
+    from harp.audio import MicrophoneSource
+    from harp.cli.clipboard import ClipboardSink
+    from harp.cli.display import TerminalDisplay
+    from harp.cli.hotkey import HotkeyWatcher
+    from harp.input import WaylandTyper
+    from harp.session import HarpSession
+
+    engine = LocalWhisperEngine(
+        model_size=config.local_model,
+        device=config.local_device,
+        compute_type=config.local_compute_type,
+    )
+    wayland_typer = WaylandTyper(full_mode=config.full_mode)
+    sink = ClipboardSink(ctrl_v=wayland_typer.ctrl_v, paste=config.paste)
+
+    if not sink.healthy:
+        console.print(
+            "[yellow]wl-copy/wl-paste not found — clipboard sink disabled.[/]"
+        )
+
+    # Session state is owned by the hotkey callbacks; one session per
+    # Ctrl+Space session boundary.
+    session_state: dict = {"current": None, "display_thread": None}
+
+    def on_start() -> None:
+        if session_state["current"] is not None:
+            return
+        src = MicrophoneSource(sample_rate=16000)
+        session = HarpSession(
+            audio=src,
+            transcribe=engine.transcribe,
+            slide_interval=config.stream_slide_interval,
+            window=config.stream_window,
+            overlap=config.stream_overlap,
+            language=config.local_language,
+        )
+        session.__enter__()
+        session_state["current"] = session
+        display = TerminalDisplay(console=console)
+
+        def run_display() -> None:
+            display.consume(session.events())
+            display.print_final(session.final_text)
+            sink.deliver(session.final_text)
+
+        import threading
+
+        t = threading.Thread(target=run_display, daemon=True)
+        t.start()
+        session_state["display_thread"] = t
+
+    def on_stop() -> None:
+        session = session_state["current"]
+        if session is None:
+            return
+        session.stop()
+        session.__exit__(None, None, None)
+        thread = session_state["display_thread"]
+        if thread is not None:
+            thread.join(timeout=10.0)
+        session_state["current"] = None
+        session_state["display_thread"] = None
+
+    watcher = HotkeyWatcher(
+        on_start=on_start,
+        on_stop=on_stop,
+        toggle=config.toggle,
+        device_filter=config.device,
+    )
+
+    console.print("[bold cyan]Harp ready.[/] Press Ctrl+Space to dictate.")
+    watcher.start()
+    try:
+        if watcher._thread is not None:
+            watcher._thread.join()
+    except KeyboardInterrupt:
+        watcher.stop()
+        on_stop()
 
 
 @app.command()

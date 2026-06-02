@@ -11,94 +11,104 @@ from harp.cli.main import app
 runner = CliRunner()
 
 
-@patch("harp.whisper.LocalWhisperEngine")
-@patch("harp.daemon.HarpDaemon")
-@patch("harp.cli.main.load_config")
-def test_cli_start_defaults(
-    mock_load_config: MagicMock,
-    mock_daemon_class: MagicMock,
-    mock_whisper_engine: MagicMock,
-) -> None:
+def _patch_runtime(*, model: str = "base", models_present: bool = True):
     """
-    Verifies the start command with default values.
+    Returns a context manager stack that mocks every runtime dependency the
+    CLI's run_daemon touches so the tests don't actually spin up threads,
+    evdev, sounddevice, or whisper.
     """
-    mock_instance = mock_daemon_class.return_value
-    mock_config = MagicMock()
-    mock_config.local_model = "base"
-    mock_load_config.return_value = mock_config
 
-    # Mock model check
-    mock_whisper_engine.list_local_models.return_value = ["base"]
+    class _Stack:
+        def __enter__(self):
+            self._patches = [
+                patch("harp.cli.main.load_config"),
+                patch("harp.whisper.LocalWhisperEngine"),
+                patch("harp.input.WaylandTyper"),
+                patch("harp.cli.clipboard.ClipboardSink"),
+                patch("harp.cli.hotkey.HotkeyWatcher"),
+            ]
+            mocks = [p.start() for p in self._patches]
+            (
+                self.load_config,
+                self.whisper_engine,
+                self.wayland_typer,
+                self.clipboard_sink,
+                self.hotkey_watcher,
+            ) = mocks
 
-    result = runner.invoke(app, ["start"])
+            mock_config = MagicMock()
+            mock_config.local_model = model
+            self.load_config.return_value = mock_config
+            self.mock_config = mock_config
 
-    assert result.exit_code == 0
-    mock_load_config.assert_called_once()
-    mock_daemon_class.assert_called_once_with(config=mock_config)
-    mock_instance.run.assert_called_once()
+            self.whisper_engine.list_local_models.return_value = (
+                [model] if models_present else []
+            )
+
+            sink_instance = self.clipboard_sink.return_value
+            sink_instance.healthy = True
+
+            watcher_instance = self.hotkey_watcher.return_value
+            watcher_instance._thread = None
+            return self
+
+        def __exit__(self, *exc):
+            for p in self._patches:
+                p.stop()
+
+    return _Stack()
 
 
-@patch("harp.whisper.LocalWhisperEngine")
-@patch("harp.daemon.HarpDaemon")
-@patch("harp.cli.main.load_config")
-def test_cli_start_model_not_found(
-    mock_load_config: MagicMock,
-    mock_daemon_class: MagicMock,
-    mock_whisper_engine: MagicMock,
-) -> None:
+def test_cli_start_defaults() -> None:
     """
-    Verifies that the start command fails if the model is not found.
+    Verifies the start command with default values wires HotkeyWatcher.
     """
-    mock_config = MagicMock()
-    mock_config.local_model = "large"
-    mock_load_config.return_value = mock_config
+    with _patch_runtime() as rt:
+        result = runner.invoke(app, ["start"])
 
-    # Mock model check - empty list
-    mock_whisper_engine.list_local_models.return_value = []
+    assert result.exit_code == 0, result.output
+    rt.load_config.assert_called_once()
+    rt.hotkey_watcher.assert_called_once()
+    rt.hotkey_watcher.return_value.start.assert_called_once()
+    assert "Harp ready." in result.output
 
-    result = runner.invoke(app, ["start"])
+
+def test_cli_start_model_not_found() -> None:
+    """
+    Verifies the start command fails if the model is not found.
+    """
+    with _patch_runtime(model="large", models_present=False) as rt:
+        result = runner.invoke(app, ["start"])
 
     assert result.exit_code == 1
-    assert "Error: Whisper model 'large' not found." in result.output
-    mock_daemon_class.assert_not_called()
+    assert "Error:" in result.output
+    assert "large" in result.output
+    rt.hotkey_watcher.assert_not_called()
 
 
-@patch("harp.whisper.LocalWhisperEngine")
-@patch("harp.daemon.HarpDaemon")
-@patch("harp.cli.main.load_config")
-def test_cli_start_custom(
-    mock_load_config: MagicMock,
-    mock_daemon_class: MagicMock,
-    mock_whisper_engine: MagicMock,
-) -> None:
+def test_cli_start_custom() -> None:
     """
-    Verifies the start command with custom flags.
+    Verifies the start command with custom flags forwards overrides.
     """
-    mock_instance = mock_daemon_class.return_value
-    mock_config = MagicMock()
-    mock_config.local_model = "base"
-    mock_load_config.return_value = mock_config
+    with _patch_runtime() as rt:
+        result = runner.invoke(
+            app,
+            [
+                "start",
+                "--device",
+                "/dev/input/event0",
+                "--toggle",
+                "--full",
+                "--no-paste",
+                "--local-device",
+                "cpu",
+                "--local-compute-type",
+                "float32",
+            ],
+        )
 
-    mock_whisper_engine.list_local_models.return_value = ["base"]
-
-    result = runner.invoke(
-        app,
-        [
-            "start",
-            "--device",
-            "/dev/input/event0",
-            "--toggle",
-            "--full",
-            "--no-paste",
-            "--local-device",
-            "cpu",
-            "--local-compute-type",
-            "float32",
-        ],
-    )
-
-    assert result.exit_code == 0
-    args, kwargs = mock_load_config.call_args
+    assert result.exit_code == 0, result.output
+    args, kwargs = rt.load_config.call_args
     overrides = kwargs["overrides"]
     assert overrides["device"] == "/dev/input/event0"
     assert overrides["toggle"] is True
@@ -106,9 +116,8 @@ def test_cli_start_custom(
     assert overrides["paste"] is False
     assert overrides["local_device"] == "cpu"
     assert overrides["local_compute_type"] == "float32"
-
-    mock_daemon_class.assert_called_once_with(config=mock_config)
-    mock_instance.run.assert_called_once()
+    rt.hotkey_watcher.assert_called_once()
+    rt.hotkey_watcher.return_value.start.assert_called_once()
 
 
 def test_cli_config_command() -> None:
