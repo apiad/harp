@@ -151,3 +151,30 @@ def test_type_unicode_sequence(mock_sleep: MagicMock, typer: WaylandTyper) -> No
     # 3. Release Shift+Ctrl (2 up) = 2
     # Total = 4 + 8 + 2 = 14 calls
     assert typer.device.emit.call_count == 14
+
+
+def test_ctrl_v_emits_ctrl_press_v_press_v_release_ctrl_release(monkeypatch):
+    # Bypass /dev/uinput by injecting a fake device.
+    t = WaylandTyper.__new__(WaylandTyper)
+    t.device = MagicMock()
+    t.full_mode = False
+    t._key_map = {}
+
+    WaylandTyper.ctrl_v(t)
+
+    calls = [c.args for c in t.device.emit.call_args_list]
+    assert (uinput.KEY_LEFTCTRL, 1) in calls
+    assert (uinput.KEY_V, 1) in calls
+    assert (uinput.KEY_V, 0) in calls
+    assert (uinput.KEY_LEFTCTRL, 0) in calls
+    # Ctrl press precedes V press precedes V release precedes Ctrl release.
+    order = [c for c in calls if c in {
+        (uinput.KEY_LEFTCTRL, 1), (uinput.KEY_V, 1),
+        (uinput.KEY_V, 0), (uinput.KEY_LEFTCTRL, 0),
+    }]
+    assert order == [
+        (uinput.KEY_LEFTCTRL, 1),
+        (uinput.KEY_V, 1),
+        (uinput.KEY_V, 0),
+        (uinput.KEY_LEFTCTRL, 0),
+    ]

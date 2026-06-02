@@ -165,6 +165,15 @@ class WaylandTyper:
             self.device.emit(uinput.KEY_BACKSPACE, 0)
             time.sleep(0.001)
 
+    def ctrl_v(self) -> None:
+        """Emit a Ctrl+V keystroke. Used by ClipboardSink."""
+        if not self.device:
+            return
+        self.device.emit(uinput.KEY_LEFTCTRL, 1)
+        self.device.emit(uinput.KEY_V, 1)
+        self.device.emit(uinput.KEY_V, 0)
+        self.device.emit(uinput.KEY_LEFTCTRL, 0)
+
     def type_text(self, text: str) -> None:
         """
         Emulates keystrokes for the provided text.
