@@ -21,3 +21,13 @@ def test_commit_event_words_matches_text_split():
     """Convention check: callers compute words = len(text.split()); CommitEvent stores it as-given."""
     ev = CommitEvent(text="one two three", words=3, ts=0.0)
     assert ev.words == len(ev.text.split())
+
+
+def test_public_api_importable() -> None:
+    import harp
+
+    assert hasattr(harp, "HarpSession")
+    assert hasattr(harp, "MicrophoneSource")
+    assert hasattr(harp, "CommitEvent")
+    assert hasattr(harp, "AudioSource")
+    assert harp.__version__ == "0.7.0"
