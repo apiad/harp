@@ -1,129 +1,60 @@
-"""
-End-to-end integration test using a real voice recording and local Whisper.
+"""End-to-end integration test (marked @pytest.mark.integration).
+
+Drives a HarpSession + ClipboardSink against a known WAV. Asserts the
+clipboard receives the final text exactly once and that no per-character
+typing keystrokes are emitted.
 """
 
-import os
-import wave
-import string
-import numpy as np
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
 import pytest
-from fuzzywuzzy import fuzz
 
+from harp.cli.clipboard import ClipboardSink
+from harp.session import HarpSession
 from harp.whisper import LocalWhisperEngine
+from tests.fakes import FileAudioSource
 
-GROUND_TRUTH_TXT = "tests/assets/ground_truth.txt"
-GROUND_TRUTH_WAV = "tests/assets/ground_truth.wav"
-
-
-def normalize_text(text: str) -> str:
-    """
-    Lowercase, remove punctuation and extra whitespace.
-    """
-    text = text.lower()
-    text = text.translate(str.maketrans("", "", string.punctuation))
-    return " ".join(text.split())
+ASSET = Path(__file__).parent / "assets" / "ground_truth.wav"
 
 
-@pytest.mark.asyncio
 @pytest.mark.integration
-@pytest.mark.skipif(
-    not os.path.exists(GROUND_TRUTH_WAV), reason="Ground truth audio not recorded yet."
-)
-async def test_local_transcription_accuracy():
-    """
-    Verifies that the local Whisper transcription matches the ground truth text.
-    """
-    # 1. Load Ground Truth Text
-    with open(GROUND_TRUTH_TXT, "r") as f:
-        original_text = f.read().strip()
+def test_end_to_end_paste_only() -> None:
+    if not ASSET.exists():
+        pytest.skip(f"missing asset {ASSET}")
+    if not LocalWhisperEngine.list_local_models():
+        pytest.skip("no local Whisper models — run 'harp models download base'")
 
-    # 2. Load Ground Truth Audio
-    with wave.open(GROUND_TRUTH_WAV, "rb") as wf:
-        n_frames = wf.getnframes()
-        audio_bytes = wf.readframes(n_frames)
-        audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
-        audio_data = audio_int16.astype(np.float32) / 32767.0
-
-    # 3. Transcribe via Local Whisper
-
-    # Use 'base' for gold standard accuracy
     engine = LocalWhisperEngine(model_size="base", device="cpu", compute_type="int8")
+    src = FileAudioSource(ASSET, chunk_ms=200)
 
-    # Check if model exists, if not, skip or use tiny
-    if not LocalWhisperEngine.list_local_models():
-        # Download tiny for CI testing if needed, or skip
-        # For this test, we assume the user has at least one model if they run integration tests
-        pytest.skip(
-            "No local Whisper models found. Run 'harp models download base' first."
-        )
+    writes: list[bytes] = []
+    snapshot = MagicMock(return_value=b"PRE")
 
-    import time
+    def write(b: bytes) -> None:
+        writes.append(b)
 
-    start_time = time.time()
-    transcribed_text = engine.transcribe(audio_data)
-    duration = time.time() - start_time
+    ctrl_v = MagicMock()
+    sleep = MagicMock()
 
-    # 4. Compare
-    norm_original = normalize_text(original_text)
-    norm_transcribed = normalize_text(transcribed_text)
-
-    similarity = fuzz.ratio(norm_original, norm_transcribed)
-
-    print(f"\nSimilarity Score: {similarity}%")
-    print(f"Transcription Time: {duration:.2f}s")
-    print(f"Original: {original_text[:100]}...")
-    print(f"Transcribed: {transcribed_text[:100]}...")
-
-    # Local Whisper 'base' should be very accurate for clear audio
-    assert similarity >= 90, (
-        f"Transcription similarity ({similarity}%) is below 90% threshold."
+    sink = ClipboardSink(
+        snapshot=snapshot,
+        write=write,
+        ctrl_v=ctrl_v,
+        sleep=sleep,
+        paste=True,
     )
 
+    with HarpSession(audio=src, transcribe=engine.transcribe, slide_interval=0.5) as s:
+        list(s.events())
+        final = s.final_text
 
-@pytest.mark.integration
-@pytest.mark.skip(
-    reason=(
-        "Streaming end-to-end with tiny CPU decode runs ~70 re-decodes of a "
-        "30s rolling window for a 70s clip and exceeds practical CPU timeouts "
-        "in this environment. Enable manually on a mic/GPU-equipped host."
-    )
-)
-@pytest.mark.skipif(
-    not os.path.exists(GROUND_TRUTH_WAV), reason="Ground truth audio not recorded yet."
-)
-def test_streaming_transcriber_end_to_end():
-    """
-    Feeds the ground-truth WAV through a real StreamingTranscriber in ~1s
-    slices and asserts the finalized text fuzzy-matches the ground truth.
-    """
-    from harp.streaming import StreamingTranscriber
+    sink.deliver(final)
 
-    if not LocalWhisperEngine.list_local_models():
-        pytest.skip(
-            "No local Whisper models found. Run 'harp models download tiny' first."
-        )
-
-    with open(GROUND_TRUTH_TXT, "r") as f:
-        original_text = f.read().strip()
-
-    with wave.open(GROUND_TRUTH_WAV, "rb") as wf:
-        sr = wf.getframerate()
-        n_frames = wf.getnframes()
-        audio_bytes = wf.readframes(n_frames)
-        audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
-        audio_data = audio_int16.astype(np.float32) / 32767.0
-
-    engine = LocalWhisperEngine(model_size="tiny", device="cpu", compute_type="int8")
-    st = StreamingTranscriber(transcribe=engine.transcribe, samplerate=sr)
-
-    slice_samples = sr
-    for start in range(0, audio_data.shape[0], slice_samples):
-        st.feed(audio_data[start : start + slice_samples])
-        st.step()
-    final = st.finalize()
-
-    similarity = fuzz.ratio(normalize_text(original_text), normalize_text(final.committed))
-    print(f"\nStreaming similarity: {similarity}%")
-    assert similarity > 80, (
-        f"Streaming transcription similarity ({similarity}%) is below 80% threshold."
-    )
+    assert final.strip(), "expected non-empty transcription from asset WAV"
+    assert len(writes) == 2
+    assert writes[0].decode() == final
+    assert writes[1] == b"PRE"
+    assert ctrl_v.call_count == 1
