@@ -2,10 +2,36 @@
 Audio streaming and capturing logic.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, Iterable, Protocol, runtime_checkable
 
 import numpy as np
 import sounddevice as sd
+
+
+@runtime_checkable
+class AudioSource(Protocol):
+    """Yields PCM int16 mono frames until exhausted or closed.
+
+    Implementations may be blocking (microphone, network stream) or
+    finite (file). ``frames()`` MUST be safe to iterate once and then
+    stop; HarpSession does not seek back.
+    """
+
+    sample_rate: int
+    channels: int
+
+    def frames(self) -> Iterable[bytes]:
+        """Yield PCM int16 chunks. Each chunk is a contiguous ``bytes`` buffer.
+
+        Frame size is the source's choice; HarpSession rebuffers internally.
+        """
+        ...
+
+    def close(self) -> None:
+        """Stop producing frames and release OS resources. Idempotent."""
+        ...
 
 
 class AudioStreamer:
