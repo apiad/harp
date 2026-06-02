@@ -60,7 +60,6 @@ def run_daemon(
 
     config = load_config(overrides=overrides)
 
-    from harp.daemon import HarpDaemon
     from harp.whisper import LocalWhisperEngine
 
     # Pre-flight check: Verify if local model is downloaded

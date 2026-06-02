@@ -3,11 +3,8 @@ Keyboard emulation for Wayland.
 """
 
 import time
-from typing import Callable, Optional
 
 import uinput
-
-from harp.streaming import longest_common_prefix
 
 
 class WaylandTyper:
@@ -204,67 +201,3 @@ class WaylandTyper:
                     print(f"Warning: Character '{char}' could not be typed. Skipping.")
 
             time.sleep(0.001)
-
-
-class IncrementalTyper:
-    """
-    Emits the minimal backspace+type diff to make the focused window match a
-    target string, preserving the common prefix already on screen. Defers
-    while the user is typing; falls back to append-only past a backspace cap.
-    """
-
-    def __init__(
-        self,
-        typer,
-        max_backspaces: int = 80,
-        is_paused: Optional[Callable[[], bool]] = None,
-    ) -> None:
-        self._typer = typer
-        self._max_backspaces = max_backspaces
-        self._is_paused = is_paused or (lambda: False)
-        self._rendered = ""
-        self._pending: Optional[str] = None
-        self.append_only = False
-
-    def update(self, target: str) -> None:
-        target = self._typer.filter_text(target)
-        if self._is_paused():
-            self._pending = target
-            return
-        if self._pending is not None:
-            self._pending = None
-        self._reconcile(target)
-
-    def _reconcile(self, target: str) -> None:
-        if target == self._rendered:
-            return
-        if self.append_only:
-            if target.startswith(self._rendered):
-                self._typer.type_text(target[len(self._rendered):])
-                self._rendered = target
-            else:
-                extra = target[len(longest_common_prefix(self._rendered, target)):]
-                self._typer.type_text(extra)
-                self._rendered += extra
-            return
-        common = longest_common_prefix(self._rendered, target)
-        to_delete = len(self._rendered) - len(common)
-        if to_delete > self._max_backspaces:
-            self.append_only = True
-            if target.startswith(self._rendered):
-                addition = target[len(self._rendered):]
-            else:
-                addition = target
-            self._typer.type_text(addition)
-            self._rendered = self._rendered + addition
-            return
-        if to_delete > 0:
-            self._typer.backspace(to_delete)
-        self._typer.type_text(target[len(common):])
-        self._rendered = target
-
-    def flush(self) -> None:
-        """Apply any deferred update (called when pause clears)."""
-        if self._pending is not None and not self._is_paused():
-            t, self._pending = self._pending, None
-            self._reconcile(t)
