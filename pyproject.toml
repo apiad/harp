@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-harp = "harp.__main__:app"
+harp = "harp.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/harp"]

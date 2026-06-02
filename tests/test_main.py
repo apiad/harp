@@ -6,14 +6,14 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from harp.__main__ import app
+from harp.cli.main import app
 
 runner = CliRunner()
 
 
 @patch("harp.whisper.LocalWhisperEngine")
 @patch("harp.daemon.HarpDaemon")
-@patch("harp.__main__.load_config")
+@patch("harp.cli.main.load_config")
 def test_cli_start_defaults(
     mock_load_config: MagicMock,
     mock_daemon_class: MagicMock,
@@ -40,7 +40,7 @@ def test_cli_start_defaults(
 
 @patch("harp.whisper.LocalWhisperEngine")
 @patch("harp.daemon.HarpDaemon")
-@patch("harp.__main__.load_config")
+@patch("harp.cli.main.load_config")
 def test_cli_start_model_not_found(
     mock_load_config: MagicMock,
     mock_daemon_class: MagicMock,
@@ -65,7 +65,7 @@ def test_cli_start_model_not_found(
 
 @patch("harp.whisper.LocalWhisperEngine")
 @patch("harp.daemon.HarpDaemon")
-@patch("harp.__main__.load_config")
+@patch("harp.cli.main.load_config")
 def test_cli_start_custom(
     mock_load_config: MagicMock,
     mock_daemon_class: MagicMock,
@@ -117,7 +117,7 @@ def test_cli_config_command() -> None:
     """
     Verifies the config command.
     """
-    with patch("harp.__main__.load_config") as mock_load:
+    with patch("harp.cli.main.load_config") as mock_load:
         mock_config = MagicMock()
         mock_config.model_dump.return_value = {"stream_slide_interval": 1.0}
         mock_load.return_value = mock_config
