@@ -36,12 +36,10 @@ class HarpConfig(BaseSettings):
         default=None, description="Language code for local STT (e.g., 'en', 'es')"
     )
 
-    # Output Modes
-    type_result: bool = Field(
-        default=False, alias="type", description="Type the result"
-    )
-    copy_result: bool = Field(
-        default=False, alias="copy", description="Copy the result to clipboard"
+    # Output Mode
+    paste: bool = Field(
+        default=True,
+        description="Auto-paste (Ctrl+V) the final transcription into the focused window",
     )
 
     # STT Behavior (real-time streaming)

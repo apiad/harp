@@ -89,8 +89,7 @@ def test_cli_start_custom(
             "/dev/input/event0",
             "--toggle",
             "--full",
-            "--type",
-            "--copy",
+            "--no-paste",
             "--local-device",
             "cpu",
             "--local-compute-type",
@@ -104,8 +103,7 @@ def test_cli_start_custom(
     assert overrides["device"] == "/dev/input/event0"
     assert overrides["toggle"] is True
     assert overrides["full_mode"] is True
-    assert overrides["type"] is True
-    assert overrides["copy"] is True
+    assert overrides["paste"] is False
     assert overrides["local_device"] == "cpu"
     assert overrides["local_compute_type"] == "float32"
 

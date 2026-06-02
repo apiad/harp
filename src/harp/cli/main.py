@@ -37,8 +37,7 @@ def run_daemon(
     device: Optional[str] = None,
     toggle: Optional[bool] = None,
     full_mode: Optional[bool] = None,
-    type_result: Optional[bool] = None,
-    copy_result: Optional[bool] = None,
+    paste: Optional[bool] = None,
     stream_slide_interval: Optional[float] = None,
     local_device: Optional[str] = None,
     local_compute_type: Optional[str] = None,
@@ -52,8 +51,7 @@ def run_daemon(
         "device": device,
         "toggle": toggle,
         "full_mode": full_mode,
-        "type": type_result,
-        "copy": copy_result,
+        "paste": paste,
         "stream_slide_interval": stream_slide_interval,
         "local_device": local_device,
         "local_compute_type": local_compute_type,
@@ -99,11 +97,10 @@ def start(
     full: Optional[bool] = typer.Option(
         None, "--full", "-f", help="Type all characters including symbols (opt-in)"
     ),
-    type_result: Optional[bool] = typer.Option(
-        None, "--type", help="Type the transcription result"
-    ),
-    copy_result: Optional[bool] = typer.Option(
-        None, "--copy", help="Copy the transcription result to the clipboard"
+    paste: bool = typer.Option(
+        True,
+        "--paste/--no-paste",
+        help="Auto-paste (Ctrl+V) the final transcription into the focused window",
     ),
     stream_slide_interval: Optional[float] = typer.Option(
         None, "--slide", help="Seconds between streaming re-decode passes"
@@ -130,8 +127,7 @@ def start(
         device=device,
         toggle=toggle,
         full_mode=full,
-        type_result=type_result,
-        copy_result=copy_result,
+        paste=paste,
         stream_slide_interval=stream_slide_interval,
         local_device=local_device,
         local_compute_type=local_compute_type,
