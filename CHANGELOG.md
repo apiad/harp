@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-01
+
+### Changed
+- **Breaking:** Dictation no longer types live into the focused window. The
+  terminal now shows the live (back-patched) transcription; the focused
+  window receives the session's final text once via clipboard + Ctrl+V at
+  session end. `--type` and `--copy` flags removed. New `--paste` /
+  `--no-paste` flag (default `--paste`).
+- Dropped `pyperclip` dependency; clipboard interactions now shell out to
+  `wl-copy` / `wl-paste` for explicit save/restore around the paste.
+
+### Added
+- Public Python API: `harp.HarpSession`, `harp.MicrophoneSource`,
+  `harp.CommitEvent`, `harp.AudioSource`. The CLI is now one of several
+  possible clients. See `docs/library.md`.
+
+### Removed
+- `harp.daemon.HarpDaemon`, `harp.daemon.DaemonState`,
+  `harp.input.IncrementalTyper`, and the live-typing pacing path.
+- Stale TASKS.md items: `#7 Local Whisper` (shipped in v0.5.0), `#8 Prompt
+  Presets` (obsolete since v0.6.0 removed command mode).
+
+## [0.6.x] - prior streaming work
+
 ### Added
 - **Real-Time Streaming Dictation** (slice A): a new `StreamingTranscriber` re-decodes a rolling audio window and commits stable text using LocalAgreement-2 (word-level agreement across consecutive re-decodes). The daemon runs a single streaming session per `Ctrl+Space` press and types the committed prefix live.
 - **Back-Patch Typing** (`IncrementalTyper`): emits the minimal `backspace + retype` diff each tick so the typed buffer always reflects the latest best transcription, with a configurable backspace cap and pause-defer guard.

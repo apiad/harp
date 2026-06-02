@@ -93,7 +93,3 @@ class MicrophoneSource:
             except Exception:
                 pass
             self._stream = None
-
-
-# TODO(Task 17): remove this alias once daemon.py is deleted.
-AudioStreamer = MicrophoneSource
