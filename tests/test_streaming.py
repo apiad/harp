@@ -1,6 +1,8 @@
 import numpy as np
 from harp.streaming import (
-    StreamingTranscriber, TranscriptState, longest_common_prefix,
+    StreamingTranscriber,
+    TranscriptState,
+    longest_common_prefix,
 )
 
 

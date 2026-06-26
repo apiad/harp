@@ -168,10 +168,17 @@ def test_ctrl_v_emits_ctrl_press_v_press_v_release_ctrl_release(monkeypatch):
     assert (uinput.KEY_V, 0) in calls
     assert (uinput.KEY_LEFTCTRL, 0) in calls
     # Ctrl press precedes V press precedes V release precedes Ctrl release.
-    order = [c for c in calls if c in {
-        (uinput.KEY_LEFTCTRL, 1), (uinput.KEY_V, 1),
-        (uinput.KEY_V, 0), (uinput.KEY_LEFTCTRL, 0),
-    }]
+    order = [
+        c
+        for c in calls
+        if c
+        in {
+            (uinput.KEY_LEFTCTRL, 1),
+            (uinput.KEY_V, 1),
+            (uinput.KEY_V, 0),
+            (uinput.KEY_LEFTCTRL, 0),
+        }
+    ]
     assert order == [
         (uinput.KEY_LEFTCTRL, 1),
         (uinput.KEY_V, 1),

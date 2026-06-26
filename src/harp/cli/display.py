@@ -48,12 +48,16 @@ class TerminalDisplay:
         else:
             body = f"[italic green]{event.text}[/]"
             footer = f"[dim]listening… {event.words} words[/]"
-        return _RenderedPanel(body, title="[bold cyan]Harp[/]", subtitle=footer, border_style="cyan")
+        return _RenderedPanel(
+            body, title="[bold cyan]Harp[/]", subtitle=footer, border_style="cyan"
+        )
 
     def consume(self, events: Iterator[CommitEvent]) -> None:
         from rich.live import Live
 
-        with Live(self.render(None), console=self._console, refresh_per_second=10) as live:
+        with Live(
+            self.render(None), console=self._console, refresh_per_second=10
+        ) as live:
             for ev in events:
                 self.last_text = ev.text
                 frame = self.render(ev)
@@ -65,4 +69,10 @@ class TerminalDisplay:
         if not text:
             self._console.print("[dim](empty session)[/]")
             return
-        self._console.print(Panel(f"[italic green]{text}[/]", title="[bold cyan]Final[/]", border_style="cyan"))
+        self._console.print(
+            Panel(
+                f"[italic green]{text}[/]",
+                title="[bold cyan]Final[/]",
+                border_style="cyan",
+            )
+        )

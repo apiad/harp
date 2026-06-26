@@ -86,13 +86,16 @@ def test_session_stop_from_another_thread_drains(two_word_wav: Path) -> None:
     fake = FakeWhisper(["hello", "hello world", "hello world today"])
     src = FileAudioSource(two_word_wav, chunk_ms=50)
 
-    with HarpSession(audio=src, transcribe=fake.transcribe, slide_interval=0.05) as session:
+    with HarpSession(
+        audio=src, transcribe=fake.transcribe, slide_interval=0.05
+    ) as session:
+
         def stopper():
             time.sleep(0.2)
             session.stop()
 
         threading.Thread(target=stopper, daemon=True).start()
-        events = list(session.events())
+        list(session.events())  # drain to force the iterator to terminate
 
     # The iterator must terminate. final_text must be populated.
     assert isinstance(session.final_text, str)

@@ -12,7 +12,9 @@ def test_commit_event_is_frozen_dataclass():
     try:
         ev.text = "mutated"  # type: ignore[misc]
     except Exception as exc:
-        assert "frozen" in str(exc).lower() or "FrozenInstanceError" in type(exc).__name__
+        assert (
+            "frozen" in str(exc).lower() or "FrozenInstanceError" in type(exc).__name__
+        )
     else:
         raise AssertionError("CommitEvent should be frozen")
 

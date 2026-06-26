@@ -77,9 +77,7 @@ class StreamingTranscriber:
         if self._buf.shape[0] <= max_samples:
             return
         keep = int(self._overlap * self._sr)
-        self._buf = (
-            self._buf[-keep:] if keep > 0 else np.zeros(0, dtype=np.float32)
-        )
+        self._buf = self._buf[-keep:] if keep > 0 else np.zeros(0, dtype=np.float32)
         # Hypothesis no longer aligns to the trimmed buffer; reset agreement.
         self._prev_hyp = ""
 
@@ -90,7 +88,7 @@ class StreamingTranscriber:
         hyp = hyp_full
         committed_stripped = self._committed.rstrip()
         if committed_stripped and hyp.startswith(committed_stripped):
-            hyp = hyp[len(committed_stripped):].lstrip()
+            hyp = hyp[len(committed_stripped) :].lstrip()
         prev_words = self._prev_hyp.split()
         curr_words = hyp.split()
         n = 0

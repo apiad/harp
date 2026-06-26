@@ -70,7 +70,9 @@ def test_deliver_handles_empty_initial_clipboard() -> None:
     write = MagicMock()
     ctrl_v = MagicMock()
     sleep = MagicMock()
-    sink = ClipboardSink(snapshot=snapshot, write=write, ctrl_v=ctrl_v, sleep=sleep, paste=True)
+    sink = ClipboardSink(
+        snapshot=snapshot, write=write, ctrl_v=ctrl_v, sleep=sleep, paste=True
+    )
 
     sink.deliver("X")
 
@@ -81,8 +83,9 @@ def test_deliver_handles_empty_initial_clipboard() -> None:
 
 def test_default_runners_use_wl_copy_and_wl_paste() -> None:
     """When constructed with no overrides, the default runners shell out."""
-    with patch("harp.cli.clipboard.subprocess") as sp, patch(
-        "harp.cli.clipboard.shutil.which", return_value="/usr/bin/wl-copy"
+    with (
+        patch("harp.cli.clipboard.subprocess") as sp,
+        patch("harp.cli.clipboard.shutil.which", return_value="/usr/bin/wl-copy"),
     ):
         sp.run.return_value.stdout = b"PRE"
         sp.run.return_value.returncode = 0

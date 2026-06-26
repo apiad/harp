@@ -127,7 +127,8 @@ class HotkeyWatcher:
         keyboards = [d for d in devices if self._is_real_keyboard(d)]
         if self._device_filter:
             keyboards = [
-                k for k in keyboards
+                k
+                for k in keyboards
                 if k.path == self._device_filter or k.name == self._device_filter
             ]
         if not keyboards:
