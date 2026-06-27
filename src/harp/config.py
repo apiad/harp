@@ -55,6 +55,14 @@ class HarpConfig(BaseSettings):
     stream_vad: bool = Field(
         default=True, description="Use Silero VAD for chunk boundaries"
     )
+    stream_transient: bool = Field(
+        default=False,
+        description="Emit a live transient preview (re-decodes the in-progress "
+        "chunk every slide — costs ~2-4x compute; off keeps streaming real-time)",
+    )
+    stream_beam_size: int = Field(
+        default=1, description="Beam size for streaming decodes (1 = fastest)"
+    )
     # NOTE: stream_slide_interval must be tuned per model/device on a host
     # with a real microphone. Default below is a conservative guess; see
     # README / CHANGELOG for tuning guidance.

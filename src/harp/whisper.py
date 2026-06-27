@@ -21,6 +21,7 @@ class LocalWhisperEngine:
         device: str = "auto",
         compute_type: str = "default",
         download_root: Optional[str] = None,
+        beam_size: int = 5,
     ) -> None:
         """
         Initializes the Whisper model and keeps it in memory.
@@ -34,6 +35,7 @@ class LocalWhisperEngine:
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
+        self.beam_size = beam_size
 
         if download_root is None:
             self.download_root = str(Path.home() / ".cache" / "harp" / "models")
@@ -87,7 +89,7 @@ class LocalWhisperEngine:
 
             segments, _ = self.model.transcribe(
                 audio_data,
-                beam_size=5,
+                beam_size=self.beam_size,
                 initial_prompt=initial_prompt,
                 language=language,
                 vad_filter=False,  # VAD is handled by the user manually or not at all as requested

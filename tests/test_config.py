@@ -9,6 +9,8 @@ def test_streaming_defaults():
     assert c.stream_silence_threshold == 0.5
     assert c.stream_max_segment == 25.0
     assert c.stream_vad is True
+    assert c.stream_transient is False
+    assert c.stream_beam_size == 1
 
 
 def test_old_window_fields_removed():

@@ -46,6 +46,7 @@ class HarpSession:
         silence_threshold: float = 0.5,
         max_segment: float = 25.0,
         language: Optional[str] = None,
+        transient: bool = False,
     ) -> None:
         from harp.vad import NullDetector
 
@@ -62,6 +63,7 @@ class HarpSession:
             silence_threshold=silence_threshold,
             max_segment=max_segment,
             language=language,
+            transient=transient,
         )
 
         self._queue: queue.Queue = queue.Queue()

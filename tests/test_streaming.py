@@ -49,7 +49,7 @@ def test_state_full_joins():
 
 def test_warmup_emits_transient_not_committed():
     tx = FakeTranscribe()
-    st = StreamingTranscriber(tx, NoSpeech(), warmup=10.0)
+    st = StreamingTranscriber(tx, NoSpeech(), warmup=10.0, transient=True)
     st.feed(_silence(3))
     state = st.step()
     assert state.committed == ""
@@ -84,7 +84,8 @@ def test_vad_boundary_commits_and_drops_audio():
 def test_no_boundary_when_still_speaking():
     tx = FakeTranscribe()
     st = StreamingTranscriber(
-        tx, ScriptedSpeech(trailing_silence_s=0.1), warmup=10.0, silence_threshold=0.5
+        tx, ScriptedSpeech(trailing_silence_s=0.1), warmup=10.0,
+        silence_threshold=0.5, transient=True,
     )
     st.feed(_silence(12))
     state = st.step()
@@ -120,6 +121,43 @@ def test_finalized_audio_never_re_decoded():
         st.step()
     st.finalize()
     assert max(tx.calls) <= 26 * 16000  # bounded — no growing re-decode
+
+
+# ---- transient toggle (real-time finalize-only mode) ----
+
+
+def test_transient_off_does_not_decode_between_boundaries():
+    """With transient disabled, a non-finalizing step performs no decode."""
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx, ScriptedSpeech(trailing_silence_s=0.1), warmup=10.0,
+        silence_threshold=0.5, transient=False,
+    )
+    st.feed(_silence(12))
+    before = len(tx.calls)
+    state = st.step()  # past warmup, no boundary (0.1s < 0.5s) -> no decode
+    assert state.transient == ""
+    assert len(tx.calls) == before  # zero decodes performed
+
+
+def test_transient_off_still_finalizes_at_boundaries():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx, ScriptedSpeech(trailing_silence_s=1.0), warmup=10.0,
+        silence_threshold=0.5, transient=False,
+    )
+    st.feed(_silence(12))
+    state = st.step()
+    assert state.committed != ""  # boundary still finalizes (one decode)
+
+
+def test_transient_off_skips_warmup_preview_decode():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(tx, NoSpeech(), warmup=10.0, transient=False)
+    st.feed(_silence(3))
+    state = st.step()
+    assert state.transient == ""
+    assert tx.calls == []  # nothing decoded during warm-up either
 
 
 # ---- Task 5: force-cut ----

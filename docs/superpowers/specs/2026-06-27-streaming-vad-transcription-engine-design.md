@@ -228,6 +228,38 @@ Build the thinnest end-to-end path first, then widen.
   `AudioStreamer`, and command mode.
 - Update the stale README (still advertises v0.6.0 / `--type`).
 
+## Real-time performance (measured 2026-06-27, zion CPU)
+
+The first end-to-end build was ~1.15x real-time (94s to process a 73s clip with
+`base`, `beam_size=5`, `compute_type=default`→float32, transient preview on) —
+it falls progressively behind a live meeting. Benchmarking isolated the cause:
+
+- The Whisper model is **not** the bottleneck: a single batch decode of the 73s
+  clip is RTF 0.28 (`base`/beam5/float32) down to RTF 0.14 (`base`/beam1/int8).
+- The streaming loop did **~4x redundant decode work** by re-decoding the
+  growing in-progress buffer on every transient-preview step, then again at
+  finalization.
+
+Resolution — the default streaming path is **finalize-only**:
+
+- Each VAD chunk is decoded exactly once → decode work ≈ 1x audio → RTF ≈ batch
+  RTF. Measured **24.7s for 73.1s (RTF ≈ 0.34, ~0.27 steady-state excl. model
+  load) — ~3-4x faster than real-time**, so lag cannot accumulate.
+- Streaming decodes default to `beam_size=1` (config `stream_beam_size`) and the
+  CLI promotes `compute_type=default`→`int8` on CPU (~2x over float32).
+- The live **transient preview is opt-in** (`stream_transient` / `--preview`),
+  since re-decoding the in-progress chunk costs ~2-4x and is what blocks
+  real-time on CPU. The two-tier `TranscriptEvent` contract is unchanged —
+  `transient` is simply empty in finalize-only mode. Enable the preview when
+  running a small model or on GPU, or for a live-typing UI.
+- Side benefit: per-chunk decoding can transcribe quiet tails that a single
+  long batch decode drops.
+
+Latency notes: steady-state lag is eliminated by RTF « 1. Initial latency is
+bounded by `stream_warmup` (default 10s) before the first chunk — lower it for
+snappier first output on long-form sources at the cost of the short-dictation
+"single clean decode" property.
+
 ## Open tuning questions (deferred to implementation/tuning, not blocking)
 
 - Exact defaults for `warmup`, `silence_threshold`, `max_segment`, and the

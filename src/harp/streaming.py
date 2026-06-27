@@ -45,6 +45,7 @@ class StreamingTranscriber:
         silence_threshold: float = 0.5,
         max_segment: float = 25.0,
         language: Optional[str] = None,
+        transient: bool = False,
     ) -> None:
         self._transcribe = transcribe
         self._detector = detector
@@ -53,6 +54,7 @@ class StreamingTranscriber:
         self._silence = silence_threshold
         self._max_segment = max_segment
         self._language = language
+        self._transient = transient
         self._active = np.zeros(0, dtype=np.float32)
         self._committed = ""
 
@@ -88,10 +90,16 @@ class StreamingTranscriber:
         if self._active.size == 0:
             return TranscriptState(self._committed, "")
         if self._seconds() < self._warmup:
-            return TranscriptState(self._committed, self._decode(self._active))
+            # Warm-up: only re-decode for a live preview when transient is on.
+            # Finalize-only mode just buffers until the first boundary.
+            if self._transient:
+                return TranscriptState(self._committed, self._decode(self._active))
+            return TranscriptState(self._committed, "")
         if self._maybe_finalize():
             return TranscriptState(self._committed, "")
-        return TranscriptState(self._committed, self._decode(self._active))
+        if self._transient:
+            return TranscriptState(self._committed, self._decode(self._active))
+        return TranscriptState(self._committed, "")
 
     def _maybe_finalize(self) -> bool:
         """Finalize a chunk if a boundary is reached. Returns True if it did."""

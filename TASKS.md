@@ -28,6 +28,13 @@ Put done tasks into the Archive.
 - [ ] Slice D — post-processing hooks layered on top of the committed prefix
 - [ ] Live empirical tuning of `stream_slide_interval` per model/device (needs a mic-equipped host)
 
+### Long-form streaming engine (VAD-segmented)
+> Spec: `docs/superpowers/specs/2026-06-27-streaming-vad-transcription-engine-design.md`
+> Plan: `docs/superpowers/plans/2026-06-27-streaming-vad-engine-slice1.md`
+- [ ] Slice 2 — rewire `harp start` hotkey daemon onto the new engine as the default streaming mode; keep clipboard sink for short dictation
+- [ ] Slice 3 — file-output sink (`-o transcript.md`); refresh stale `docs/design.md`, README, `docs/library.md`; CHANGELOG; add `AGENTS.md` + `know-how/streaming-engine.md`
+- [ ] Tune transient-preview cost on files (consider a finalize-only / no-transient mode so file transcription stays lean)
+
 ### Infrastructure
 - [ ] Implement Voice Activity Detection (VAD) for auto-stop (#10)
 - [ ] Integrate XDG Global Shortcuts portal (D-Bus) (#11)
@@ -55,3 +62,4 @@ Put done tasks into the Archive.
 - [x] Implement local-first Whisper refactor and high-speed concurrent transcription (See plan: `plans/local-first-whisper-refactor.md`) (2026-03-11)
 - [x] Real-time streaming dictation with back-patch typing + removal of cloud LLM/command mode (See plan: `docs/superpowers/plans/2026-05-18-streaming-backpatch-dictation-plan.html`) (2026-05-18)
 - [x] Library-first refactor + clipboard-paste delivery (See plan: `docs/superpowers/plans/2026-06-01-library-first-clipboard-paste-plan.md`) (2026-06-01)
+- [x] VAD-segmented streaming engine — Slice 1: TranscriptEvent, Silero VAD, finalize-once-and-drop engine, FileSource, `harp transcribe <file>`, audio-driven step cadence (See plan: `docs/superpowers/plans/2026-06-27-streaming-vad-engine-slice1.md`) (2026-06-27)

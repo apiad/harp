@@ -131,6 +131,7 @@ def run_daemon(
             silence_threshold=config.stream_silence_threshold,
             max_segment=config.stream_max_segment,
             language=config.local_language,
+            transient=config.stream_transient,
         )
         session.__enter__()
         session_state["current"] = session
@@ -311,6 +312,12 @@ def transcribe(
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Whisper model size"
     ),
+    preview: bool = typer.Option(
+        False,
+        "--preview/--no-preview",
+        help="Live transient preview of the in-progress chunk (costs ~2-4x "
+        "compute; off keeps streaming real-time)",
+    ),
 ) -> None:
     """Stream-transcribe an audio file, printing finalized + transient text."""
     from rich.live import Live
@@ -323,10 +330,16 @@ def transcribe(
     config = load_config(
         overrides={"local_language": language, "local_model": model}
     )
+    # On CPU, "default" resolves to slow float32; int8 is ~2x faster with
+    # negligible accuracy loss for streaming.
+    compute = config.local_compute_type
+    if compute == "default":
+        compute = "int8"
     engine = LocalWhisperEngine(
         model_size=config.local_model,
         device=config.local_device,
-        compute_type=config.local_compute_type,
+        compute_type=compute,
+        beam_size=config.stream_beam_size,
     )
     src = FileSource(file)
     with HarpSession(
@@ -338,6 +351,7 @@ def transcribe(
         silence_threshold=config.stream_silence_threshold,
         max_segment=config.stream_max_segment,
         language=config.local_language,
+        transient=preview or config.stream_transient,
     ) as session:
         with Live(console=console, refresh_per_second=8) as live:
             for ev in session.events():
