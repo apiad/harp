@@ -1,10 +1,12 @@
-"""Audio source abstraction and microphone implementation."""
+"""Audio source abstraction and microphone / file implementations."""
 
 from __future__ import annotations
 
 import queue
-from typing import Any, Iterable, Optional, Protocol, runtime_checkable
+from pathlib import Path
+from typing import Any, Iterable, Optional, Protocol, Union, runtime_checkable
 
+import numpy as np
 import sounddevice as sd
 
 
@@ -93,3 +95,36 @@ class MicrophoneSource:
             except Exception:
                 pass
             self._stream = None
+
+
+class FileSource:
+    """Decodes an audio file to 16 kHz mono int16 PCM frames.
+
+    Uses faster-whisper's bundled decoder (PyAV), so any ffmpeg-readable
+    container works (wav, m4a, mp3, ...). Frames are yielded as fast as
+    decode allows — playback is not real-time-throttled.
+    """
+
+    sample_rate: int
+    channels: int
+
+    def __init__(self, path: Union[str, Path], block_ms: int = 100) -> None:
+        self.sample_rate = 16000
+        self.channels = 1
+        self._path = str(path)
+        self._block = int(self.sample_rate * block_ms / 1000)
+        self._closed = False
+
+    def frames(self) -> Iterable[bytes]:
+        from faster_whisper.audio import decode_audio
+
+        audio = decode_audio(self._path, sampling_rate=self.sample_rate)
+        pcm = np.asarray(audio, dtype=np.float32) * 32768.0
+        pcm = pcm.clip(-32768, 32767).astype(np.int16)
+        for start in range(0, pcm.shape[0], self._block):
+            if self._closed:
+                return
+            yield pcm[start : start + self._block].tobytes()
+
+    def close(self) -> None:
+        self._closed = True

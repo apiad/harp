@@ -1,0 +1,41 @@
+"""Tests for harp.audio.FileSource."""
+
+import wave
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from harp.audio import AudioSource, FileSource
+
+
+def _write_wav(path: Path, seconds=1.0, sr=16000):
+    data = np.zeros(int(seconds * sr), dtype=np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(data.tobytes())
+
+
+def test_filesource_is_audiosource(tmp_path):
+    p = tmp_path / "a.wav"
+    _write_wav(p)
+    src = FileSource(p)
+    assert isinstance(src, AudioSource)
+    assert src.sample_rate == 16000
+    assert src.channels == 1
+
+
+def test_filesource_yields_int16_frames_covering_duration(tmp_path):
+    p = tmp_path / "a.wav"
+    _write_wav(p, seconds=1.0)
+    src = FileSource(p, block_ms=100)
+    total = b"".join(src.frames())
+    samples = np.frombuffer(total, dtype=np.int16)
+    assert abs(samples.shape[0] - 16000) <= 1600
+
+
+def test_filesource_missing_file_raises(tmp_path):
+    with pytest.raises((FileNotFoundError, OSError, ValueError, RuntimeError)):
+        list(FileSource(tmp_path / "nope.wav").frames())
