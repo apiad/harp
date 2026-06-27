@@ -10,7 +10,7 @@ from typing import Iterator, Optional
 import numpy as np
 
 from harp.audio import AudioSource
-from harp.events import CommitEvent
+from harp.events import TranscriptEvent
 from harp.streaming import StreamingTranscriber, TranscribeFn
 
 _SENTINEL = object()
@@ -29,7 +29,7 @@ class HarpSession:
     Threading model:
         * The calling thread drives ``events()`` and reads from a queue.
         * A worker thread pulls frames from ``audio``, feeds them into a
-          ``StreamingTranscriber``, and pushes ``CommitEvent``s onto the queue.
+          ``StreamingTranscriber``, and pushes ``TranscriptEvent``s onto the queue.
         * ``stop()`` is thread-safe and signals the worker to drain.
 
     ``stop()`` and ``__exit__`` both close the audio source and join the
@@ -96,8 +96,8 @@ class HarpSession:
         if self._worker is not None:
             self._worker.join(timeout=5.0)
 
-    def events(self) -> Iterator[CommitEvent]:
-        """Yield CommitEvents until the session ends."""
+    def events(self) -> Iterator[TranscriptEvent]:
+        """Yield TranscriptEvents until the session ends."""
         while True:
             item = self._queue.get()
             if item is _SENTINEL:
@@ -146,9 +146,10 @@ class HarpSession:
 
     def _emit(self, text: str) -> None:
         stripped = text.strip()
-        ev = CommitEvent(
-            text=stripped,
-            words=len(stripped.split()),
+        ev = TranscriptEvent(
+            committed=stripped,
+            transient="",
+            is_final=False,
             ts=time.monotonic() - self._t0,
         )
         self._queue.put(ev)

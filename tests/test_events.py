@@ -1,28 +1,37 @@
 """Tests for harp.events."""
 
-from harp.events import CommitEvent
+import dataclasses
+
+import pytest
+
+from harp.events import TranscriptEvent
 
 
-def test_commit_event_is_frozen_dataclass():
-    ev = CommitEvent(text="hello world", words=2, ts=1.5)
+def test_text_joins_committed_and_transient():
+    ev = TranscriptEvent(
+        committed="hello world", transient="how are", is_final=False, ts=1.0
+    )
+    assert ev.text == "hello world how are"
+
+
+def test_text_strips_when_transient_empty():
+    ev = TranscriptEvent(
+        committed="hello world", transient="", is_final=True, ts=2.0
+    )
     assert ev.text == "hello world"
-    assert ev.words == 2
-    assert ev.ts == 1.5
-
-    try:
-        ev.text = "mutated"  # type: ignore[misc]
-    except Exception as exc:
-        assert (
-            "frozen" in str(exc).lower() or "FrozenInstanceError" in type(exc).__name__
-        )
-    else:
-        raise AssertionError("CommitEvent should be frozen")
 
 
-def test_commit_event_words_matches_text_split():
-    """Convention check: callers compute words = len(text.split()); CommitEvent stores it as-given."""
-    ev = CommitEvent(text="one two three", words=3, ts=0.0)
-    assert ev.words == len(ev.text.split())
+def test_words_counts_full_text():
+    ev = TranscriptEvent(
+        committed="one two", transient="three", is_final=False, ts=0.0
+    )
+    assert ev.words == 3
+
+
+def test_event_is_frozen():
+    ev = TranscriptEvent(committed="a", transient="b", is_final=False, ts=0.0)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        ev.committed = "x"  # type: ignore[misc]
 
 
 def test_public_api_importable() -> None:
@@ -30,6 +39,6 @@ def test_public_api_importable() -> None:
 
     assert hasattr(harp, "HarpSession")
     assert hasattr(harp, "MicrophoneSource")
-    assert hasattr(harp, "CommitEvent")
+    assert hasattr(harp, "TranscriptEvent")
     assert hasattr(harp, "AudioSource")
     assert harp.__version__ == "0.7.0"

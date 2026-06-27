@@ -7,7 +7,7 @@ from typing import Callable, Iterator, Optional
 from rich.console import Console
 from rich.panel import Panel
 
-from harp.events import CommitEvent
+from harp.events import TranscriptEvent
 
 
 class _RenderedPanel(Panel):
@@ -41,7 +41,7 @@ class TerminalDisplay:
         self._on_frame = on_frame
         self.last_text: str = ""
 
-    def render(self, event: Optional[CommitEvent]) -> Panel:
+    def render(self, event: Optional[TranscriptEvent]) -> Panel:
         if event is None:
             body = "[dim](listening…)[/]"
             footer = ""
@@ -52,7 +52,7 @@ class TerminalDisplay:
             body, title="[bold cyan]Harp[/]", subtitle=footer, border_style="cyan"
         )
 
-    def consume(self, events: Iterator[CommitEvent]) -> None:
+    def consume(self, events: Iterator[TranscriptEvent]) -> None:
         from rich.live import Live
 
         with Live(

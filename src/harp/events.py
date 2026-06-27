@@ -4,15 +4,24 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class CommitEvent:
-    """A snapshot of the current committed transcription prefix.
+class TranscriptEvent:
+    """Two-tier transcription snapshot.
 
-    The full committed prefix is carried in ``text`` every time, so clients
-    that need delta-awareness (e.g. a Rich Live panel that animates
-    back-patches) compute deltas by diffing against the previous event's
-    text. There is no separate "revision" event.
+    ``committed`` is the cumulative finalized text: append-only, never revised.
+    ``transient`` is the current hypothesis of the in-progress segment; it may
+    be rewritten or emptied between events. Consumers render committed text
+    "in the dark" and transient "in the light".
     """
 
-    text: str
-    words: int
+    committed: str
+    transient: str
+    is_final: bool
     ts: float
+
+    @property
+    def text(self) -> str:
+        return f"{self.committed} {self.transient}".strip()
+
+    @property
+    def words(self) -> int:
+        return len(self.text.split())

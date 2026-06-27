@@ -11,7 +11,7 @@ from typing import List
 import numpy as np
 import pytest
 
-from harp.events import CommitEvent
+from harp.events import TranscriptEvent
 from harp.session import HarpSession
 from tests.fakes import FileAudioSource
 
@@ -58,8 +58,8 @@ def test_session_emits_commit_events_for_growing_prefix(two_word_wav: Path) -> N
         events = list(session.events())
         final = session.final_text
 
-    assert all(isinstance(e, CommitEvent) for e in events)
-    assert events, "expected at least one CommitEvent"
+    assert all(isinstance(e, TranscriptEvent) for e in events)
+    assert events, "expected at least one TranscriptEvent"
     # Each event's text strictly extends (or equals) the previous one's
     # except across LocalAgreement-2 revisions.
     assert "hello" in final

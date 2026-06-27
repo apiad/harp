@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from typing import List
 
-from harp.events import CommitEvent
+from harp.events import TranscriptEvent
 from harp.cli.display import TerminalDisplay
+
+
+def _ev(text: str, ts: float = 0.0) -> TranscriptEvent:
+    return TranscriptEvent(committed=text, transient="", is_final=False, ts=ts)
 
 
 def test_render_returns_panel_with_current_text() -> None:
     d = TerminalDisplay()
-    panel = d.render(CommitEvent(text="hello world", words=2, ts=0.5))
+    panel = d.render(_ev("hello world", ts=0.5))
     # Renderable smoke-test: stringifies without exploding.
     s = str(panel)
     assert "hello world" in s
@@ -29,8 +33,8 @@ def test_consume_records_each_event() -> None:
     frames: List[str] = []
     d = TerminalDisplay(on_frame=lambda r: frames.append(str(r)))
     events = [
-        CommitEvent(text="hello", words=1, ts=0.1),
-        CommitEvent(text="hello world", words=2, ts=0.5),
+        _ev("hello", ts=0.1),
+        _ev("hello world", ts=0.5),
     ]
     d.consume(iter(events))
     assert any("hello" in f for f in frames)
