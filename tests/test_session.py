@@ -1,4 +1,4 @@
-"""Tests for harp.session.HarpSession."""
+"""Tests for harp.session.HarpSession (VAD-segmented engine)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from tests.fakes import FileAudioSource
 
 @pytest.fixture()
 def two_word_wav(tmp_path: Path) -> Path:
-    """A 1.5s WAV the fake transcribe function will turn into 'hello world'."""
+    """A 1.5s WAV the fake transcribe function will turn into text."""
     path = tmp_path / "two_words.wav"
     sr = 16000
     samples = np.zeros(int(sr * 1.5), dtype=np.int16)
@@ -31,9 +31,7 @@ def two_word_wav(tmp_path: Path) -> Path:
 
 
 class FakeWhisper:
-    """Stand-in for LocalWhisperEngine: returns scripted transcriptions
-    sized to how much audio has been fed.
-    """
+    """Stand-in for LocalWhisperEngine: returns scripted transcriptions."""
 
     def __init__(self, hypotheses: List[str]) -> None:
         self._hypotheses = list(hypotheses)
@@ -45,28 +43,27 @@ class FakeWhisper:
         return self._hypotheses[i]
 
 
-def test_session_emits_commit_events_for_growing_prefix(two_word_wav: Path) -> None:
+def test_session_emits_transcript_events_and_final_text(two_word_wav: Path) -> None:
     fake = FakeWhisper(["hello", "hello", "hello world", "hello world"])
     src = FileAudioSource(two_word_wav, chunk_ms=200)
 
     with HarpSession(
         audio=src,
         transcribe=fake.transcribe,
-        slide_interval=0.05,
-        language=None,
+        slide_interval=0.0,
+        warmup=10.0,
     ) as session:
         events = list(session.events())
         final = session.final_text
 
     assert all(isinstance(e, TranscriptEvent) for e in events)
     assert events, "expected at least one TranscriptEvent"
-    # Each event's text strictly extends (or equals) the previous one's
-    # except across LocalAgreement-2 revisions.
+    assert events[-1].is_final is True
     assert "hello" in final
     assert final.strip() != ""
 
 
-def test_session_final_text_empty_for_empty_source(tmp_path: Path) -> None:
+def test_session_emits_terminal_final_event_for_empty_source(tmp_path: Path) -> None:
     empty_wav = tmp_path / "empty.wav"
     with wave.open(str(empty_wav), "wb") as w:
         w.setnchannels(1)
@@ -76,9 +73,10 @@ def test_session_final_text_empty_for_empty_source(tmp_path: Path) -> None:
 
     fake = FakeWhisper([""])
     src = FileAudioSource(empty_wav)
-    with HarpSession(audio=src, transcribe=fake.transcribe, slide_interval=0.05) as s:
+    with HarpSession(audio=src, transcribe=fake.transcribe, slide_interval=0.0) as s:
         events = list(s.events())
-        assert events == []
+        assert len(events) == 1
+        assert events[0].is_final is True
         assert s.final_text == ""
 
 
@@ -95,9 +93,8 @@ def test_session_stop_from_another_thread_drains(two_word_wav: Path) -> None:
             session.stop()
 
         threading.Thread(target=stopper, daemon=True).start()
-        list(session.events())  # drain to force the iterator to terminate
+        list(session.events())
 
-    # The iterator must terminate. final_text must be populated.
     assert isinstance(session.final_text, str)
 
 
@@ -113,7 +110,7 @@ def test_session_context_manager_closes_audio_source(two_word_wav: Path) -> None
 
     src.close = tracking_close  # type: ignore[method-assign]
 
-    with HarpSession(audio=src, transcribe=fake.transcribe, slide_interval=0.05) as s:
+    with HarpSession(audio=src, transcribe=fake.transcribe, slide_interval=0.0) as s:
         list(s.events())
 
     assert closed["called"] is True

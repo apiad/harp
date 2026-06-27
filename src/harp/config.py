@@ -42,19 +42,25 @@ class HarpConfig(BaseSettings):
         description="Auto-paste (Ctrl+V) the final transcription into the focused window",
     )
 
-    # STT Behavior (real-time streaming)
-    stream_window: float = Field(
-        default=30.0, description="Rolling re-decode window in seconds"
+    # STT Behavior (VAD-segmented streaming)
+    stream_warmup: float = Field(
+        default=10.0, description="Seconds buffered before entering chunked mode"
     )
-    stream_overlap: float = Field(
-        default=5.0, description="Audio retained across a buffer trim, seconds"
+    stream_silence_threshold: float = Field(
+        default=0.5, description="Trailing silence (s) that finalizes a chunk"
+    )
+    stream_max_segment: float = Field(
+        default=25.0, description="Force-cut length (s) when no pause is found"
+    )
+    stream_vad: bool = Field(
+        default=True, description="Use Silero VAD for chunk boundaries"
     )
     # NOTE: stream_slide_interval must be tuned per model/device on a host
     # with a real microphone. Default below is a conservative guess; see
     # README / CHANGELOG for tuning guidance.
     stream_slide_interval: float = Field(
         default=1.0,
-        description="Seconds between streaming re-decode passes (tuned per model)",
+        description="Seconds between transient-preview re-decode passes",
     )
 
     # UI/Behavior

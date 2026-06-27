@@ -24,6 +24,19 @@ app.add_typer(models_app, name="models")
 console = Console()
 
 
+def _build_detector(config):
+    """Silero VAD when enabled and loadable, else a NullDetector (force-cuts)."""
+    from harp.vad import NullDetector, SileroDetector
+
+    if not getattr(config, "stream_vad", True):
+        return NullDetector()
+    try:
+        return SileroDetector(threshold=config.stream_silence_threshold)
+    except Exception:
+        console.print("[yellow]Silero VAD unavailable — falling back to time-based cuts.[/]")
+        return NullDetector()
+
+
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context):
     """
@@ -112,9 +125,11 @@ def run_daemon(
         session = HarpSession(
             audio=src,
             transcribe=engine.transcribe,
+            detector=_build_detector(config),
             slide_interval=config.stream_slide_interval,
-            window=config.stream_window,
-            overlap=config.stream_overlap,
+            warmup=config.stream_warmup,
+            silence_threshold=config.stream_silence_threshold,
+            max_segment=config.stream_max_segment,
             language=config.local_language,
         )
         session.__enter__()

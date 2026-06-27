@@ -1,74 +1,140 @@
+"""Tests for the VAD-segmented StreamingTranscriber core."""
+
 import numpy as np
-from harp.streaming import (
-    StreamingTranscriber,
-    TranscriptState,
-    longest_common_prefix,
-)
+
+from harp.streaming import StreamingTranscriber, TranscriptState
 
 
-def test_longest_common_prefix():
-    assert longest_common_prefix("the cat sat", "the cat ran") == "the cat "
-    assert longest_common_prefix("", "abc") == ""
-    assert longest_common_prefix("abc", "abc") == "abc"
-
-
-def _audio(seconds=1.0, sr=16000):
+def _silence(seconds, sr=16000):
     return np.zeros(int(seconds * sr), dtype=np.float32)
 
 
-def test_agreement_commits_stable_prefix():
-    scripted = iter(["the quick", "the quick brown", "the quick brown fox"])
+class FakeTranscribe:
+    """Returns a word count proportional to buffer seconds; records call sizes."""
 
-    def fake(audio, prompt, lang):
-        return next(scripted)
+    def __init__(self):
+        self.calls = []  # buffer lengths (samples) it was asked to decode
 
-    st = StreamingTranscriber(transcribe=fake)
-    st.feed(_audio())
-    s1 = st.step()
-    assert s1.committed == ""
-    assert s1.tail == "the quick"
-    st.feed(_audio())
-    s2 = st.step()
-    assert s2.committed == "the quick "
-    assert s2.tail == "brown"
-    st.feed(_audio())
-    s3 = st.step()
-    assert s3.committed == "the quick brown "
-    assert s3.tail == "fox"
-    assert s3.full == "the quick brown fox"
+    def __call__(self, audio, prompt, language):
+        self.calls.append(audio.shape[0])
+        words = max(1, audio.shape[0] // 16000)
+        return " ".join(f"w{i}" for i in range(words))
 
 
-def test_finalize_commits_tail():
-    scripted = iter(["hello wor", "hello world", "hello world"])
+class NoSpeech:
+    def speech_segments(self, audio):
+        return []
 
-    def fake(audio, prompt, lang):
-        return next(scripted)
 
-    st = StreamingTranscriber(transcribe=fake)
-    st.feed(_audio())
-    st.step()
-    st.feed(_audio())
+class ScriptedSpeech:
+    """Reports one speech span ending `trailing_silence_s` before the buffer end."""
+
+    def __init__(self, trailing_silence_s, sr=16000):
+        self._gap = int(trailing_silence_s * sr)
+
+    def speech_segments(self, audio):
+        n = audio.shape[0]
+        end = n - self._gap
+        if end <= 0:
+            return []
+        return [(0, end)]
+
+
+# ---- Task 3: warm-up + finalize ----
+
+
+def test_state_full_joins():
+    assert TranscriptState("a b", "c").full == "a b c"
+
+
+def test_warmup_emits_transient_not_committed():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(tx, NoSpeech(), warmup=10.0)
+    st.feed(_silence(3))
+    state = st.step()
+    assert state.committed == ""
+    assert state.transient != ""
+
+
+def test_finalize_commits_once_for_short_input():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(tx, NoSpeech(), warmup=10.0)
+    st.feed(_silence(4))
     st.step()
     final = st.finalize()
-    assert final.committed.replace("  ", " ").strip() == "hello world"
-    assert final.tail == ""
+    assert final.committed != ""
+    assert final.transient == ""
 
 
-def test_step_on_empty_buffer_is_safe():
-    st = StreamingTranscriber(transcribe=lambda a, p, lang: "x")
-    s = st.step()
-    assert s == TranscriptState("", "")
+# ---- Task 4: VAD boundary finalization + drop ----
 
 
-def test_buffer_trims_after_commit_when_over_window():
-    scripted = iter(["alpha beta", "alpha beta gamma", "alpha beta gamma delta"])
+def test_vad_boundary_commits_and_drops_audio():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx, ScriptedSpeech(trailing_silence_s=1.0), warmup=10.0, silence_threshold=0.5
+    )
+    st.feed(_silence(12))
+    state = st.step()
+    assert state.committed != ""
+    assert state.transient == ""
+    assert st._active.shape[0] <= 2 * 16000
 
-    def fake(audio, prompt, lang):
-        return next(scripted)
 
-    st = StreamingTranscriber(transcribe=fake, window=1.0, overlap=0.25)
-    st.feed(_audio(seconds=2.0))
-    st.step()
-    st.feed(_audio(seconds=2.0))
-    st.step()
-    assert st._buf.shape[0] == int(0.25 * 16000)
+def test_no_boundary_when_still_speaking():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx, ScriptedSpeech(trailing_silence_s=0.1), warmup=10.0, silence_threshold=0.5
+    )
+    st.feed(_silence(12))
+    state = st.step()
+    assert state.committed == ""
+    assert state.transient != ""
+
+
+def test_committed_is_append_only_across_two_chunks():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx, ScriptedSpeech(trailing_silence_s=1.0), warmup=10.0, silence_threshold=0.5
+    )
+    st.feed(_silence(12))
+    first = st.step().committed
+    st.feed(_silence(12))
+    second = st.step().committed
+    assert second.startswith(first)
+    assert len(second) > len(first)
+
+
+def test_finalized_audio_never_re_decoded():
+    """transcribe is never asked to decode more than ~max_segment of audio."""
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx,
+        ScriptedSpeech(trailing_silence_s=1.0),
+        warmup=10.0,
+        silence_threshold=0.5,
+        max_segment=25.0,
+    )
+    for _ in range(5):
+        st.feed(_silence(12))
+        st.step()
+    st.finalize()
+    assert max(tx.calls) <= 26 * 16000  # bounded — no growing re-decode
+
+
+# ---- Task 5: force-cut ----
+
+
+def test_force_cut_when_no_silence_exceeds_max_segment():
+    tx = FakeTranscribe()
+    st = StreamingTranscriber(
+        tx,
+        ScriptedSpeech(trailing_silence_s=0.0),
+        warmup=10.0,
+        silence_threshold=0.5,
+        max_segment=25.0,
+    )
+    st.feed(_silence(30))
+    state = st.step()
+    assert state.committed != ""
+    assert st._active.shape[0] <= 6 * 16000

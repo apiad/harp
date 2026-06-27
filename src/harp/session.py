@@ -40,23 +40,27 @@ class HarpSession:
         self,
         audio: AudioSource,
         transcribe: TranscribeFn,
+        detector=None,  # harp.vad.SpeechDetector; defaults to NullDetector
         slide_interval: float = 1.0,
-        window: float = 30.0,
-        overlap: float = 5.0,
+        warmup: float = 10.0,
+        silence_threshold: float = 0.5,
+        max_segment: float = 25.0,
         language: Optional[str] = None,
     ) -> None:
+        from harp.vad import NullDetector
+
         self._audio = audio
         self._transcribe = transcribe
         self._slide_interval = slide_interval
-        self._window = window
-        self._overlap = overlap
         self._language = language
 
         self._transcriber = StreamingTranscriber(
             transcribe=transcribe,
+            detector=detector if detector is not None else NullDetector(),
             samplerate=audio.sample_rate,
-            window=window,
-            overlap=overlap,
+            warmup=warmup,
+            silence_threshold=silence_threshold,
+            max_segment=max_segment,
             language=language,
         )
 
@@ -111,7 +115,7 @@ class HarpSession:
     # ---- worker thread ----
 
     def _run(self) -> None:
-        last_committed = ""
+        last_pair = ("", "")
         last_step = time.monotonic()
         try:
             for chunk in self._audio.frames():
@@ -123,33 +127,33 @@ class HarpSession:
                 now = time.monotonic()
                 if now - last_step >= self._slide_interval:
                     last_step = now
-                    last_committed = self._step_and_emit(last_committed)
+                    last_pair = self._step_and_emit(last_pair)
         except Exception:
             # Worker errors must not deadlock the consumer.
             pass
         finally:
             try:
                 final = self._transcriber.finalize()
-                if final.committed.strip() and final.committed != last_committed:
-                    self._emit(final.committed)
                 self._final_text = final.committed.strip()
             except Exception:
-                self._final_text = last_committed.strip()
+                self._final_text = last_pair[0]
+            # Always emit a terminal snapshot so consumers see is_final.
+            self._emit(self._final_text, "", is_final=True)
             self._queue.put(_SENTINEL)
 
-    def _step_and_emit(self, last_committed: str) -> str:
+    def _step_and_emit(self, last_pair: tuple) -> tuple:
         state = self._transcriber.step()
-        if state.committed != last_committed and state.committed.strip():
-            self._emit(state.committed)
-            return state.committed
-        return last_committed
+        pair = (state.committed.strip(), state.transient.strip())
+        if pair != last_pair and (pair[0] or pair[1]):
+            self._emit(pair[0], pair[1], is_final=False)
+            return pair
+        return last_pair
 
-    def _emit(self, text: str) -> None:
-        stripped = text.strip()
+    def _emit(self, committed: str, transient: str, is_final: bool) -> None:
         ev = TranscriptEvent(
-            committed=stripped,
-            transient="",
-            is_final=False,
+            committed=committed,
+            transient=transient,
+            is_final=is_final,
             ts=time.monotonic() - self._t0,
         )
         self._queue.put(ev)

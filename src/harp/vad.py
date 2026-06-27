@@ -14,6 +14,17 @@ class SpeechDetector(Protocol):
     def speech_segments(self, audio: np.ndarray) -> List[Tuple[int, int]]: ...
 
 
+class NullDetector:
+    """A SpeechDetector that never reports speech.
+
+    With no boundaries, the engine falls back to force-cutting at
+    ``max_segment``. Used when VAD is disabled or unavailable.
+    """
+
+    def speech_segments(self, audio: np.ndarray) -> List[Tuple[int, int]]:
+        return []
+
+
 class SileroDetector:
     """SpeechDetector backed by the Silero VAD bundled with faster-whisper.
 

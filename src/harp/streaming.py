@@ -1,7 +1,22 @@
-"""Pure, I/O-free streaming transcription core (LocalAgreement-2)."""
+"""Pure, I/O-free VAD-segmented streaming transcription core.
+
+The engine buffers audio and, during a short warm-up window, previews a
+transient hypothesis of the whole buffer (matching today's short-dictation
+behaviour). Past warm-up it enters chunked mode: whenever the injected speech
+detector reports trailing silence after speech — or the active buffer exceeds
+``max_segment`` with no pause — it finalizes that chunk by decoding it exactly
+once, appending the text to an append-only ``committed`` string, and dropping
+the chunk's audio. Finalized audio is never re-decoded, which bounds per-step
+cost and keeps the engine real-time for arbitrarily long input.
+
+The class is dependency-injected: it receives a ``transcribe`` callable and a
+``SpeechDetector`` so it can be exercised with fakes, no model load.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -10,111 +25,90 @@ TranscribeFn = Callable[[np.ndarray, Optional[str], Optional[str]], str]
 
 @dataclass(frozen=True)
 class TranscriptState:
-    """Immutable snapshot: committed text never changes; tail may be rewritten."""
+    """Immutable snapshot: committed is append-only; transient may change."""
 
     committed: str
-    tail: str
+    transient: str
 
     @property
     def full(self) -> str:
-        return (self.committed + self.tail).strip()
-
-
-def longest_common_prefix(a: str, b: str) -> str:
-    """Character-level longest common prefix of two strings."""
-    n = 0
-    for ca, cb in zip(a, b):
-        if ca != cb:
-            break
-        n += 1
-    return a[:n]
+        return f"{self.committed} {self.transient}".strip()
 
 
 class StreamingTranscriber:
-    """
-    Re-decodes a rolling audio window every step() and commits the longest
-    word-aligned prefix that agrees across two successive hypotheses
-    (LocalAgreement-2). Buffer trimming is added in Task 2.
-    """
-
     def __init__(
         self,
         transcribe: TranscribeFn,
+        detector,  # harp.vad.SpeechDetector
         samplerate: int = 16000,
-        window: float = 30.0,
-        overlap: float = 5.0,
+        warmup: float = 10.0,
+        silence_threshold: float = 0.5,
+        max_segment: float = 25.0,
         language: Optional[str] = None,
     ) -> None:
         self._transcribe = transcribe
+        self._detector = detector
         self._sr = samplerate
-        self._window = window
-        self._overlap = overlap
+        self._warmup = warmup
+        self._silence = silence_threshold
+        self._max_segment = max_segment
         self._language = language
-        self._buf = np.zeros(0, dtype=np.float32)
+        self._active = np.zeros(0, dtype=np.float32)
         self._committed = ""
-        self._prev_hyp = ""
+
+    # ---- input ----
 
     def feed(self, pcm: np.ndarray) -> None:
-        self._buf = np.concatenate(
-            [self._buf, np.asarray(pcm, dtype=np.float32).flatten()]
+        self._active = np.concatenate(
+            [self._active, np.asarray(pcm, dtype=np.float32).flatten()]
         )
 
-    def _window_audio(self) -> np.ndarray:
-        max_samples = int(self._window * self._sr)
-        if self._buf.shape[0] <= max_samples:
-            return self._buf
-        return self._buf[-max_samples:]
+    # ---- helpers ----
 
-    def _decode(self) -> str:
-        audio = self._window_audio()
+    def _seconds(self) -> float:
+        return self._active.shape[0] / self._sr
+
+    def _decode(self, audio: np.ndarray) -> str:
         if audio.size == 0:
             return ""
         prompt = self._committed[-200:] or None
         return self._transcribe(audio, prompt, self._language).strip()
 
-    def _maybe_trim(self) -> None:
-        max_samples = int(self._window * self._sr)
-        if self._buf.shape[0] <= max_samples:
-            return
-        keep = int(self._overlap * self._sr)
-        self._buf = self._buf[-keep:] if keep > 0 else np.zeros(0, dtype=np.float32)
-        # Hypothesis no longer aligns to the trimmed buffer; reset agreement.
-        self._prev_hyp = ""
+    def _commit_prefix(self, end_sample: int) -> None:
+        """Decode active[:end_sample] once, append to committed, drop it."""
+        chunk = self._active[:end_sample]
+        text = self._decode(chunk)
+        if text:
+            self._committed = f"{self._committed} {text}".strip()
+        self._active = self._active[end_sample:]
 
-    def step(self) -> "TranscriptState":
-        if self._buf.size == 0:
+    # ---- stepping ----
+
+    def step(self) -> TranscriptState:
+        if self._active.size == 0:
             return TranscriptState(self._committed, "")
-        hyp_full = self._decode()
-        hyp = hyp_full
-        committed_stripped = self._committed.rstrip()
-        if committed_stripped and hyp.startswith(committed_stripped):
-            hyp = hyp[len(committed_stripped) :].lstrip()
-        prev_words = self._prev_hyp.split()
-        curr_words = hyp.split()
-        n = 0
-        for a, b in zip(prev_words, curr_words):
-            if a != b:
-                break
-            n += 1
-        if n > 0:
-            agreed = " ".join(curr_words[:n]) + " "
-            self._committed += agreed
-            hyp = " ".join(curr_words[n:])
-            self._prev_hyp = hyp
-            self._maybe_trim()
-        else:
-            self._prev_hyp = hyp
-        return TranscriptState(self._committed, hyp)
+        if self._seconds() < self._warmup:
+            return TranscriptState(self._committed, self._decode(self._active))
+        if self._maybe_finalize():
+            return TranscriptState(self._committed, "")
+        return TranscriptState(self._committed, self._decode(self._active))
 
-    def finalize(self) -> "TranscriptState":
-        """End of session: force-commit whatever the last decode yields."""
-        if self._buf.size > 0:
-            decoded = self._decode()
-            committed_stripped = self._committed.rstrip()
-            if committed_stripped and decoded.startswith(committed_stripped):
-                self._committed = decoded
-            else:
-                self._committed += decoded
-        self._prev_hyp = ""
-        self._buf = np.zeros(0, dtype=np.float32)
+    def _maybe_finalize(self) -> bool:
+        """Finalize a chunk if a boundary is reached. Returns True if it did."""
+        segments: List[Tuple[int, int]] = self._detector.speech_segments(self._active)
+        if segments:
+            last_end = segments[-1][1]
+            trailing = self._active.shape[0] - last_end
+            if trailing >= int(self._silence * self._sr) and last_end > 0:
+                self._commit_prefix(last_end)
+                return True
+        if self._seconds() > self._max_segment:
+            self._commit_prefix(int(self._max_segment * self._sr))
+            return True
+        return False
+
+    def finalize(self) -> TranscriptState:
+        """End of session: commit whatever audio remains, once."""
+        if self._active.size > 0:
+            self._commit_prefix(self._active.shape[0])
         return TranscriptState(self._committed, "")
