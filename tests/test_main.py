@@ -120,6 +120,53 @@ def test_cli_start_custom() -> None:
     rt.hotkey_watcher.return_value.start.assert_called_once()
 
 
+def test_build_engine_promotes_default_to_int8_and_passes_beam(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import harp.cli.main as main
+
+    captured = {}
+
+    class FakeEngine:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    monkeypatch.setattr("harp.whisper.LocalWhisperEngine", FakeEngine)
+    cfg = SimpleNamespace(
+        local_model="base",
+        local_device="cpu",
+        local_compute_type="default",
+        stream_beam_size=1,
+    )
+    main._build_engine(cfg)
+    assert captured["compute_type"] == "int8"  # CPU fast path
+    assert captured["beam_size"] == 1
+    assert captured["model_size"] == "base"
+
+
+def test_build_engine_respects_explicit_compute_type(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import harp.cli.main as main
+
+    captured = {}
+
+    class FakeEngine:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    monkeypatch.setattr("harp.whisper.LocalWhisperEngine", FakeEngine)
+    cfg = SimpleNamespace(
+        local_model="base",
+        local_device="cpu",
+        local_compute_type="float32",
+        stream_beam_size=5,
+    )
+    main._build_engine(cfg)
+    assert captured["compute_type"] == "float32"  # explicit choice preserved
+    assert captured["beam_size"] == 5
+
+
 def test_cli_config_command() -> None:
     """
     Verifies the config command.

@@ -31,9 +31,10 @@ Put done tasks into the Archive.
 ### Long-form streaming engine (VAD-segmented)
 > Spec: `docs/superpowers/specs/2026-06-27-streaming-vad-transcription-engine-design.md`
 > Plan: `docs/superpowers/plans/2026-06-27-streaming-vad-engine-slice1.md`
-- [ ] Slice 2 — rewire `harp start` hotkey daemon onto the new engine as the default streaming mode; keep clipboard sink for short dictation
+- [x] Slice 2 — `harp start` hotkey daemon on the new engine (shared `_build_engine` fast path: int8 + stream_beam_size); finalize-only default keeps it real-time (2026-06-27)
 - [ ] Slice 3 — file-output sink (`-o transcript.md`); refresh stale `docs/design.md`, README, `docs/library.md`; CHANGELOG; add `AGENTS.md` + `know-how/streaming-engine.md`
-- [ ] Tune transient-preview cost on files (consider a finalize-only / no-transient mode so file transcription stays lean)
+- [ ] Hallucination on short/quiet VAD chunks with small models (`tiny` emits repeated non-English tokens on near-silence) — mitigate by skipping sub-threshold-speech chunks or using `no_speech_prob`; `base` is unaffected
+- [ ] Tune `stream_warmup` (initial-output latency vs short-dictation single-decode) and decide the default transient mode
 
 ### Infrastructure
 - [ ] Implement Voice Activity Detection (VAD) for auto-stop (#10)

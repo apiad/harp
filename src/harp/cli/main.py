@@ -24,6 +24,26 @@ app.add_typer(models_app, name="models")
 console = Console()
 
 
+def _build_engine(config):
+    """Construct the streaming Whisper engine with the real-time fast path.
+
+    On CPU, ``compute_type="default"`` resolves to float32 (~2x slower than
+    int8 with negligible accuracy loss for streaming), so promote it. Streaming
+    decodes use ``stream_beam_size`` (1 = fastest).
+    """
+    from harp.whisper import LocalWhisperEngine
+
+    compute = config.local_compute_type
+    if compute == "default":
+        compute = "int8"
+    return LocalWhisperEngine(
+        model_size=config.local_model,
+        device=config.local_device,
+        compute_type=compute,
+        beam_size=config.stream_beam_size,
+    )
+
+
 def _build_detector(config):
     """Silero VAD when enabled and loadable, else a NullDetector (force-cuts)."""
     from harp.vad import NullDetector, SileroDetector
@@ -101,11 +121,7 @@ def run_daemon(
     from harp.input import WaylandTyper
     from harp.session import HarpSession
 
-    engine = LocalWhisperEngine(
-        model_size=config.local_model,
-        device=config.local_device,
-        compute_type=config.local_compute_type,
-    )
+    engine = _build_engine(config)
     wayland_typer = WaylandTyper(full_mode=config.full_mode)
     sink = ClipboardSink(ctrl_v=wayland_typer.ctrl_v, paste=config.paste)
 
@@ -325,22 +341,11 @@ def transcribe(
     from harp.audio import FileSource
     from harp.cli.display import render_line
     from harp.session import HarpSession
-    from harp.whisper import LocalWhisperEngine
 
     config = load_config(
         overrides={"local_language": language, "local_model": model}
     )
-    # On CPU, "default" resolves to slow float32; int8 is ~2x faster with
-    # negligible accuracy loss for streaming.
-    compute = config.local_compute_type
-    if compute == "default":
-        compute = "int8"
-    engine = LocalWhisperEngine(
-        model_size=config.local_model,
-        device=config.local_device,
-        compute_type=compute,
-        beam_size=config.stream_beam_size,
-    )
+    engine = _build_engine(config)
     src = FileSource(file)
     with HarpSession(
         audio=src,
