@@ -115,8 +115,15 @@ class HarpSession:
     # ---- worker thread ----
 
     def _run(self) -> None:
+        # Step cadence is driven by audio-time fed, not wall-clock: a file
+        # source delivers audio faster than real-time, and a wall-clock gate
+        # would let the whole file arrive before the first step — collapsing
+        # the stream into a single batch decode. Counting fed samples makes
+        # the cadence identical for a real-time mic and a fast file alike.
         last_pair = ("", "")
-        last_step = time.monotonic()
+        sr = self._audio.sample_rate
+        step_samples = max(1, int(self._slide_interval * sr))
+        pending = 0
         try:
             for chunk in self._audio.frames():
                 if self._stop_event.is_set():
@@ -124,9 +131,9 @@ class HarpSession:
                 pcm = self._bytes_to_float32(chunk)
                 if pcm.size:
                     self._transcriber.feed(pcm)
-                now = time.monotonic()
-                if now - last_step >= self._slide_interval:
-                    last_step = now
+                    pending += pcm.shape[0]
+                if pending >= step_samples:
+                    pending = 0
                     last_pair = self._step_and_emit(last_pair)
         except Exception:
             # Worker errors must not deadlock the consumer.

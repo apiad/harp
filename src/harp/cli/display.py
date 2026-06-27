@@ -10,6 +10,14 @@ from rich.panel import Panel
 from harp.events import TranscriptEvent
 
 
+def render_line(event: TranscriptEvent) -> str:
+    """Committed text in normal weight, transient in dim — Rich markup."""
+    committed = event.committed
+    if event.transient:
+        return f"{committed} [dim]{event.transient}[/dim]".strip()
+    return committed
+
+
 class _RenderedPanel(Panel):
     """Panel subclass whose ``str()`` renders to a plain-text frame.
 

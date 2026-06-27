@@ -303,6 +303,50 @@ def models_remove(
 
 
 @app.command()
+def transcribe(
+    file: str = typer.Argument(
+        ..., help="Audio file to transcribe (wav/m4a/mp3/...)"
+    ),
+    language: Optional[str] = typer.Option(None, "--language", "-l"),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Whisper model size"
+    ),
+) -> None:
+    """Stream-transcribe an audio file, printing finalized + transient text."""
+    from rich.live import Live
+
+    from harp.audio import FileSource
+    from harp.cli.display import render_line
+    from harp.session import HarpSession
+    from harp.whisper import LocalWhisperEngine
+
+    config = load_config(
+        overrides={"local_language": language, "local_model": model}
+    )
+    engine = LocalWhisperEngine(
+        model_size=config.local_model,
+        device=config.local_device,
+        compute_type=config.local_compute_type,
+    )
+    src = FileSource(file)
+    with HarpSession(
+        audio=src,
+        transcribe=engine.transcribe,
+        detector=_build_detector(config),
+        slide_interval=config.stream_slide_interval,
+        warmup=config.stream_warmup,
+        silence_threshold=config.stream_silence_threshold,
+        max_segment=config.stream_max_segment,
+        language=config.local_language,
+    ) as session:
+        with Live(console=console, refresh_per_second=8) as live:
+            for ev in session.events():
+                live.update(render_line(ev))
+    console.print()
+    console.print(session.final_text)
+
+
+@app.command()
 def config() -> None:
     """
     Shows the currently resolved configuration.
