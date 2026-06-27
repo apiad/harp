@@ -37,6 +37,7 @@ exclude = [".gemini"]
 asyncio_mode = "strict"
 markers = [
     "integration: marks tests as integration tests (skipped by default)",
+    "slow: loads a model / slower integration test",
 ]
 
 [build-system]
