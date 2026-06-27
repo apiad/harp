@@ -167,6 +167,45 @@ def test_build_engine_respects_explicit_compute_type(monkeypatch) -> None:
     assert captured["beam_size"] == 5
 
 
+def test_committed_delta_returns_new_suffix() -> None:
+    from harp.cli.main import _committed_delta
+
+    assert _committed_delta("hello", "hello world") == " world"
+    assert _committed_delta("", "hello") == "hello"
+    assert _committed_delta("hello world", "hello world") == ""
+    # defensive: non-extending committed returns the whole text
+    assert _committed_delta("abc", "xyz") == "xyz"
+
+
+def test_transcribe_writes_output_file(tmp_path, monkeypatch) -> None:
+    """`harp transcribe -o` streams committed text into the file as it lands."""
+    import wave
+
+    import numpy as np
+
+    import harp.cli.main as main
+
+    wav = tmp_path / "in.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(np.zeros(16000, dtype=np.int16).tobytes())
+    out = tmp_path / "out.md"
+
+    # Stub the engine + detector so no model loads.
+    monkeypatch.setattr(main, "_build_engine", lambda c: type(
+        "E", (), {"transcribe": staticmethod(lambda a, p, lang: "hello world")}
+    )())
+    monkeypatch.setattr(main, "_build_detector", lambda c: __import__(
+        "harp.vad", fromlist=["NullDetector"]
+    ).NullDetector())
+
+    runner.invoke(app, ["transcribe", str(wav), "-o", str(out), "-l", "en"])
+    assert out.exists()
+    assert "hello world" in out.read_text()
+
+
 def test_cli_config_command() -> None:
     """
     Verifies the config command.

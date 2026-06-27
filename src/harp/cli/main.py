@@ -24,6 +24,17 @@ app.add_typer(models_app, name="models")
 console = Console()
 
 
+def _committed_delta(written: str, committed: str) -> str:
+    """The newly-finalized suffix to append to an output file.
+
+    committed is append-only, so the delta is the part beyond what's already
+    written. Falls back to the whole string if committed doesn't extend it.
+    """
+    if committed.startswith(written):
+        return committed[len(written):]
+    return committed
+
+
 def _build_engine(config):
     """Construct the streaming Whisper engine with the real-time fast path.
 
@@ -334,6 +345,12 @@ def transcribe(
         help="Live transient preview of the in-progress chunk (costs ~2-4x "
         "compute; off keeps streaming real-time)",
     ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Append finalized text to this file as chunks land (live).",
+    ),
 ) -> None:
     """Stream-transcribe an audio file, printing finalized + transient text."""
     from rich.live import Live
@@ -347,20 +364,32 @@ def transcribe(
     )
     engine = _build_engine(config)
     src = FileSource(file)
-    with HarpSession(
-        audio=src,
-        transcribe=engine.transcribe,
-        detector=_build_detector(config),
-        slide_interval=config.stream_slide_interval,
-        warmup=config.stream_warmup,
-        silence_threshold=config.stream_silence_threshold,
-        max_segment=config.stream_max_segment,
-        language=config.local_language,
-        transient=preview or config.stream_transient,
-    ) as session:
-        with Live(console=console, refresh_per_second=8) as live:
-            for ev in session.events():
-                live.update(render_line(ev))
+    out_file = open(output, "w") if output else None
+    written = ""
+    try:
+        with HarpSession(
+            audio=src,
+            transcribe=engine.transcribe,
+            detector=_build_detector(config),
+            slide_interval=config.stream_slide_interval,
+            warmup=config.stream_warmup,
+            silence_threshold=config.stream_silence_threshold,
+            max_segment=config.stream_max_segment,
+            language=config.local_language,
+            transient=preview or config.stream_transient,
+        ) as session:
+            with Live(console=console, refresh_per_second=8) as live:
+                for ev in session.events():
+                    live.update(render_line(ev))
+                    if out_file is not None and ev.committed:
+                        delta = _committed_delta(written, ev.committed)
+                        if delta:
+                            out_file.write(delta)
+                            out_file.flush()
+                            written = ev.committed
+    finally:
+        if out_file is not None:
+            out_file.close()
     console.print()
     console.print(session.final_text)
 
