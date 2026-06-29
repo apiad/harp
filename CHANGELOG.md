@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-27
+
 ### Added
 - **VAD-segmented streaming engine** for long-running audio. The engine
   buffers a short warm-up, then finalizes each speech chunk at Silero VAD
