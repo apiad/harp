@@ -33,7 +33,7 @@ Put done tasks into the Archive.
 > Plan: `docs/superpowers/plans/2026-06-27-streaming-vad-engine-slice1.md`
 - [x] Slice 2 — `harp start` hotkey daemon on the new engine (shared `_build_engine` fast path: int8 + stream_beam_size); finalize-only default keeps it real-time (2026-06-27)
 - [x] Slice 3 — `harp transcribe -o` live file sink; refreshed `docs/{design,library,cli,index}.md` + README; CHANGELOG; added `AGENTS.md` + `know-how/streaming-engine.md` (2026-06-27)
-- [ ] Hallucination on short/quiet VAD chunks with small models (`tiny` emits repeated non-English tokens on near-silence) — mitigate by skipping sub-threshold-speech chunks or using `no_speech_prob`; `base` is unaffected
+- [~] Small-model hallucination — root cause was mid-word force-cuts + weak model. Fixed via overlap finalization + segment-timestamp dedup + holdback + compression-ratio filter (2026-06-27): `base` now robust (recovers tails, no seam dups), `tiny` much improved but retains sporadic repetition bursts (intrinsic weak-model limit; `base`+ recommended). Further tiny taming (no_repeat_ngram / logprob filtering) deferred.
 - [ ] Tune `stream_warmup` (initial-output latency vs short-dictation single-decode) and decide the default transient mode
 
 ### Infrastructure
