@@ -1,11 +1,24 @@
 # Harp 🎵
 
-[![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)](https://github.com/apiad/harp/releases/tag/v0.6.0)
+[![Version](https://img.shields.io/badge/version-v0.7.0-blue.svg)](https://github.com/apiad/harp/releases/tag/v0.7.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/apiad/harp/actions/workflows/ci.yml/badge.svg)](https://github.com/apiad/harp/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-**Harp** is a background daemon for Linux (Wayland) that turns your voice into text, typed live into the focused window. Harp is **local-first and real-time**: while you hold (or, in toggle mode, after you click) `Ctrl+Space`, audio is re-decoded over a rolling window with `faster-whisper`, and the stable prefix is typed as you speak — with minimal backspace+retype back-patches when the model revises an earlier word. There is no cloud LLM step and no separate command mode: one hotkey, one mode, fully on-device.
+**Harp** is a local-first, real-time speech-to-text **engine** for Linux
+(Wayland) with two front-ends:
+
+- **Live dictation** (`harp start`) — hold (or toggle) `Ctrl+Space` and speak;
+  the final transcription is pasted into the focused window on release.
+- **File transcription** (`harp transcribe <file>`) — stream-transcribe a
+  recording (meeting, lecture, voice memo) in near real-time, printed live and
+  optionally appended to a file.
+
+Under the hood a **VAD-segmented streaming engine** finalizes each spoken chunk
+at silence boundaries (via Silero VAD), decoding it **once** with
+`faster-whisper` and never re-transcribing finalized speech — so a long
+recording streams out as you go instead of waiting for the end. Everything is
+on-device; there is no cloud step.
 
 ## 📚 Documentation
 
@@ -17,14 +30,13 @@ For in-depth information, please refer to our documentation:
 - [**Development Guide**](docs/develop.md): How to contribute and run tests.
 
 ## ✨ Features
-...
+
 - **Local-First, Fully Offline**: Powered by `faster-whisper`. Your voice never leaves your machine.
-- **Real-Time Streaming Dictation**: While you speak, Harp re-decodes a rolling window and types the stable prefix live, using LocalAgreement-2 to commit only words confirmed across consecutive passes.
-- **Back-Patch Typing**: When the model revises an earlier word, Harp emits a minimal `backspace + retype` diff instead of waiting until the end — your buffer always reflects the current best transcription.
-- **Single Hotkey, Single Mode (`Ctrl + Space`)**: Hold to dictate, or `--toggle` to click-on / click-off. No separate command mode; no clipboard-context mode.
-- **Direct Keyboard Emulation**: Transcribed text is typed directly into the focused application via `uinput`.
-- **Model Management CLI**: Easily download, list, and manage Whisper models (tiny, base, small, medium, large-v3) via `harp models`.
-- **Tunable Cadence (`--slide`)**: Control how often the rolling window is re-decoded — match it to your hardware's decode wall-time for stable streaming.
+- **VAD-Segmented Streaming Engine**: Finalizes each spoken chunk at silence boundaries (Silero VAD), decoding it **once** and never re-transcribing finalized speech — so long audio streams out as you go. Real-time on CPU (RTF ≈ 0.34 on `base`).
+- **Long-Form File Transcription** (`harp transcribe`): Stream-transcribe meetings, lectures, and voice memos in near real-time; print live and append to a file with `-o`.
+- **Live Dictation** (`harp start`): Hold (or `--toggle`) `Ctrl + Space`; the final transcription is pasted into the focused window via `uinput` on release.
+- **Library-First**: Drive a `HarpSession` from your own code; it emits two-tier `TranscriptEvent`s (committed + transient). See [`docs/library.md`](docs/library.md).
+- **Model Management CLI**: Download, list, and manage Whisper models (tiny, base, small, medium, large-v3) via `harp models`.
 - **Modern CLI**: Terminal UI powered by `Rich`.
 
 ## 🚀 Installation
@@ -86,32 +98,41 @@ harp
 
 ### Commands
 
-- `harp`: Starts the background daemon (alias for `harp start`).
-- `harp start`: Starts the background daemon with explicit options.
+- `harp` / `harp start`: Start the live-dictation daemon (hotkey-driven).
+- `harp transcribe <file>`: Stream-transcribe an audio file.
+- `harp models <download|list|remove>`: Manage local Whisper models.
+- `harp config` / `harp init`: Inspect or scaffold `.harp.yaml`.
 
-### Configuration & CLI Options
+### `harp start` options
 
-You can customize Harp's behavior using the following flags:
+| Option            | Short | Description                                                                  |
+| :---------------- | :---- | :-------------------------------------------------------------------------- |
+| `--device <path>` | `-d`  | Target a specific input device (e.g., `/dev/input/event0`).                 |
+| `--toggle`        | `-t`  | Toggle mode: press `Ctrl+Space` to start, press again to finalize.          |
+| `--full`          | `-f`  | Type all characters including symbols (for code, punctuation, URLs).        |
+| `--paste` / `--no-paste` | | Paste (`Ctrl+V`) the final text into the focused window. Default on.   |
+| `--slide <s>`     |       | Seconds of audio between streaming steps. Default `1.0`.                     |
+| `--language <c>`  | `-l`  | Language code (e.g. `en`, `es`). Default: auto-detect.                       |
 
-| Option            | Short | Description                                                                         | Use Case                                                                                                                |
-| :---------------- | :---- | :---------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------- |
-| `--device <path>` | `-d`  | Target a specific input device (e.g., `/dev/input/event0`).                         | Useful if you have multiple keyboards and only want to trigger Harp from one specific device.                           |
-| `--toggle`        | `-t`  | Enable toggle mode instead of hold mode.                                            | Press `Ctrl+Space` once to start dictating, press again to finalize.                                                    |
-| `--full`          | `-f`  | Disable safe filtering and type all returned characters, including symbols.         | Essential when dictating code, complex punctuation, or URLs.                                                            |
-| `--copy`          |       | Automatically copy the final transcribed text to your clipboard.                    | Dictate an idea, let Harp type it live, and also have the final text ready to paste elsewhere.                          |
-| `--type`          |       | Type the streaming result live into the focused window (default: False).            | Enable with `harp start --type` to use Harp as a real-time dictation engine.                                            |
-| `--slide <s>`     |       | Cadence between rolling re-decode passes (seconds). Default: `1.0`.                 | Raise on slower CPUs / larger models so the slide stays above single-window decode time.                                |
+### `harp transcribe` options
+
+| Option           | Short | Description                                                          |
+| :--------------- | :---- | :----------------------------------------------------------------- |
+| `--output <f>`   | `-o`  | Append finalized text to this file as chunks land (live).          |
+| `--model <size>` | `-m`  | Whisper model size (tiny, base, small, medium, large-v3).          |
+| `--language <c>` | `-l`  | Language code. Default: auto-detect.                               |
+| `--preview`      |       | Live word-by-word preview of the in-progress chunk (costs ~2–4× compute; off keeps streaming real-time). |
 
 ### Examples
 
-**Live dictation, all symbols, toggle:**
+**Transcribe a meeting recording to a file, live:**
 ```bash
-harp start --toggle --full --type
+harp transcribe meeting.m4a -m base -l en -o meeting.md
 ```
 
-**Slow CPU with a larger model:** raise the slide so re-decodes don't queue.
+**Live dictation, all symbols, toggle mode:**
 ```bash
-harp start --type --slide 1.5
+harp start --toggle --full
 ```
 
 ## 🤝 Contributing

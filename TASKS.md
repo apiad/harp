@@ -32,7 +32,7 @@ Put done tasks into the Archive.
 > Spec: `docs/superpowers/specs/2026-06-27-streaming-vad-transcription-engine-design.md`
 > Plan: `docs/superpowers/plans/2026-06-27-streaming-vad-engine-slice1.md`
 - [x] Slice 2 — `harp start` hotkey daemon on the new engine (shared `_build_engine` fast path: int8 + stream_beam_size); finalize-only default keeps it real-time (2026-06-27)
-- [ ] Slice 3 — file-output sink (`-o transcript.md`); refresh stale `docs/design.md`, README, `docs/library.md`; CHANGELOG; add `AGENTS.md` + `know-how/streaming-engine.md`
+- [x] Slice 3 — `harp transcribe -o` live file sink; refreshed `docs/{design,library,cli,index}.md` + README; CHANGELOG; added `AGENTS.md` + `know-how/streaming-engine.md` (2026-06-27)
 - [ ] Hallucination on short/quiet VAD chunks with small models (`tiny` emits repeated non-English tokens on near-silence) — mitigate by skipping sub-threshold-speech chunks or using `no_speech_prob`; `base` is unaffected
 - [ ] Tune `stream_warmup` (initial-output latency vs short-dictation single-decode) and decide the default transient mode
 

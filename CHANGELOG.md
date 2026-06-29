@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **VAD-segmented streaming engine** for long-running audio. The engine
+  buffers a short warm-up, then finalizes each speech chunk at Silero VAD
+  silence boundaries — decoding it **once** and dropping its audio, never
+  re-transcribing finalized speech. Bounded per-step cost keeps it real-time
+  (measured RTF ≈ 0.34 on `base`/CPU, ~3–4× faster than real-time).
+- `harp transcribe <file>` — stream-transcribe any ffmpeg-readable audio file,
+  printing finalized text normal and the in-progress preview dim. `-o FILE`
+  appends finalized text live; `--preview` enables the transient preview;
+  `--model` / `--language` select the model and language.
+- `FileSource` (any ffmpeg-readable container) and `harp.vad`
+  (`SpeechDetector`, `SileroDetector`, `NullDetector`).
+- Config: `stream_warmup`, `stream_silence_threshold`, `stream_max_segment`,
+  `stream_vad`, `stream_transient`, `stream_beam_size`. `LocalWhisperEngine`
+  gained a configurable `beam_size`.
+
+### Changed
+- **Breaking:** `CommitEvent` replaced by two-tier `TranscriptEvent`
+  (`committed`, `transient`, `is_final`, `ts`; back-compat `text`/`words`
+  properties). `HarpSession` gained a `detector` and the streaming knobs above.
+- Streaming decodes default to `beam_size=1`; the CLI promotes
+  `compute_type=default`→`int8` on CPU (~2× faster than float32).
+- Step cadence is now driven by audio-time fed, not wall-clock, so file sources
+  stream in chunks instead of collapsing into one batch decode.
+- The live transient preview is opt-in (default off) — re-decoding the
+  in-progress chunk costs ~2–4× and is what blocks real-time on CPU.
+
+### Removed
+- Config `stream_window` / `stream_overlap` (subsumed by `stream_max_segment`).
+
 ## [0.7.0] - 2026-06-01
 
 ### Changed

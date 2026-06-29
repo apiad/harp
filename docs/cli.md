@@ -1,9 +1,15 @@
 # CLI Reference
 
-The `harp` command is the main entry point for starting the daemon and managing its configuration and models. Running `harp` without any arguments is equivalent to running `harp start`.
+The `harp` command starts the live-dictation daemon, transcribes files, and
+manages configuration and models. Running `harp` with no arguments is
+equivalent to `harp start`.
 
 ## `harp start`
-Starts the background daemon listening for hotkeys. Harp now runs a single **real-time streaming dictation** mode: while you hold (or, with `--toggle`, after you click) `Ctrl+Space`, audio is re-decoded over a rolling window using LocalAgreement-2, and the stable prefix is typed live with minimal backspace+retype back-patches as the model revises.
+Starts the hotkey-driven dictation daemon. Hold (or, with `--toggle`, click)
+`Ctrl+Space` and speak; on release the session's final text is pasted into the
+focused window via a single `Ctrl+V`. Internally it runs the VAD-segmented
+streaming engine, so long holds stream chunks as you speak instead of decoding
+everything at the end.
 
 ### Options
 | Flag | Description |
@@ -13,13 +19,28 @@ Starts the background daemon listening for hotkeys. Harp now runs a single **rea
 | `-f, --full` | Type all characters including symbols (opt-in; default is safe mode). |
 | `-l, --language` | Language code for STT (e.g., `en`, `es`). Default: `auto`. |
 | `--local-device` | Hardware device for STT (`cpu`, `cuda`, `auto`). Default: `auto`. |
-| `--local-compute-type` | Model quantization (`int8`, `float16`, `float32`, `default`). Default: `default`. |
-| `--type / --no-type` | Enable or disable typing results (default is disable). |
-| `--copy / --no-copy` | Enable or disable copying results to clipboard (default is disable). |
-| `--slide <seconds>` | Cadence between streaming re-decode passes. Default: `1.0`. Tune up if your decode wall-time exceeds the slide (see below). |
+| `--local-compute-type` | Model quantization (`int8`, `float16`, `float32`, `default`). Default: `default` (the CLI promotes `default`→`int8` on CPU). |
+| `--paste / --no-paste` | Paste the final transcription into the focused window. Default on. |
+| `--slide <seconds>` | Seconds of audio between streaming steps. Default: `1.0`. |
 
-### Streaming cadence (`--slide`)
-The streaming loop re-decodes the rolling window every `stream_slide_interval` seconds. For stability, the slide must comfortably exceed the single-window decode time on your machine — rule of thumb: `slide ≥ 1.3 × decode`. The shipped default (`1.0s`) is a placeholder; **live cadence tuning on a mic-equipped host is a pending follow-up**. If you observe queuing or stuttering with `medium`/`large-v3` on CPU, raise `--slide` (or set `stream_slide_interval` in `.harp.yaml`).
+## `harp transcribe <file>`
+Stream-transcribe an audio file (any ffmpeg-readable container: wav, m4a, mp3,
+…). Finalized text prints in normal weight, the in-progress preview dim.
+
+### Options
+| Flag | Description |
+| :--- | :--- |
+| `-o, --output <file>` | Append finalized text to this file as chunks land (live). |
+| `-m, --model <size>` | Whisper model size (tiny, base, small, medium, large-v3). |
+| `-l, --language <code>` | Language code. Default: `auto`. |
+| `--preview / --no-preview` | Live word-by-word preview of the in-progress chunk. Costs ~2–4× compute; off (default) keeps streaming real-time. |
+
+### Streaming behaviour
+The engine finalizes a chunk at each VAD silence boundary (`stream_silence_threshold`),
+decoding it once and dropping its audio — finalized speech is never
+re-transcribed. In the default finalize-only mode decode work ≈ 1× audio
+(measured RTF ≈ 0.34 on `base`/CPU), so it keeps up with real-time. Tune
+`stream_warmup`, `stream_max_segment`, and `stream_beam_size` in `.harp.yaml`.
 
 ### Hardware Settings Guide
 - **`--local-device auto`**: Harp will attempt to use CUDA if an NVIDIA GPU is found, otherwise it defaults to CPU.
@@ -28,14 +49,14 @@ The streaming loop re-decodes the rolling window every `stream_slide_interval` s
 
 ### Usage Examples
 ```bash
-# Start with defaults (Hold Ctrl+Space to dictate live; print to CLI)
+# Start live dictation (hold Ctrl+Space; final text pasted on release)
 harp
 
-# Type live into the focused window, toggle mode, full symbols
-harp start --toggle --full --type
+# Toggle mode, full symbols (for dictating code/URLs)
+harp start --toggle --full
 
-# Raise the re-decode cadence to 1.5s on slower CPUs
-harp start --slide 1.5
+# Transcribe a meeting recording to a file, live
+harp transcribe meeting.m4a -m base -l en -o meeting.md
 
 # Force CPU mode if GPU libraries are missing
 harp --local-device cpu

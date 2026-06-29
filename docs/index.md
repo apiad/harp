@@ -1,30 +1,37 @@
 # Harp 🎵
 
-**Harp** is a high-performance background daemon for Linux (specifically Wayland) that converts your voice into text, typed directly into any active application.
+**Harp** is a local-first, real-time speech-to-text engine for Linux (Wayland),
+with a hotkey dictation daemon and a file-transcription command.
 
 ## Vision
 
-Harp aims to provide a seamless, private, and near-instantaneous voice-to-text interface. By prioritizing **local-first** transcription, Harp ensures that your voice data never leaves your machine while achieving sub-300ms latency from speech to text.
+A seamless, private, near-instantaneous voice-to-text interface. By keeping all
+transcription **local-first**, your voice data never leaves your machine.
 
 ## Core Concepts
 
 ### Local-First STT
-Harp uses `faster-whisper` for local Speech-to-Text (STT) inference. This eliminates the need for cloud-based audio processing, improving privacy and reducing network latency.
+Harp uses `faster-whisper` for local Speech-to-Text inference — no cloud audio
+processing, better privacy, no network latency.
 
-### Concurrent Pipeline
-Unlike traditional tools that wait for you to stop speaking before transcribing, Harp transcribes your voice in the background *while* you speak. This "record-and-stream" approach means the final result is ready almost the moment you release the hotkey.
+### VAD-Segmented Streaming
+Harp finalizes each spoken chunk at silence boundaries (Silero VAD), decoding it
+**once** and never re-transcribing finalized speech. A long recording streams
+out as you go instead of waiting for the end, and the result is ready almost the
+moment audio stops. The engine is real-time on CPU (RTF ≈ 0.34 on `base`).
 
-### Modal Operation
-Harp operates in two primary modes:
-- **Transcription Mode**: Standard voice-to-text for dictating emails, documents, or code.
-- **Command Mode**: (Ctrl + Shift + Space) Sends the locally transcribed text to an LLM to execute instructions or process context (e.g., "Summarize this paragraph").
+### Two Front-Ends
+- **Live dictation** (`harp start`): hold/toggle `Ctrl+Space`; the final text is
+  pasted into the focused window on release.
+- **File transcription** (`harp transcribe <file>`): stream a recording to the
+  terminal and, with `-o`, append it to a file live.
 
 ## Key Features
 
 - **Global Wayland Hotkeys**: Works across all applications using `evdev` and `uinput`.
-- **Keyboard Emulation**: Types results directly into the active window, supporting Unicode and special characters.
+- **Keyboard Emulation**: Pastes results into the active window, supporting Unicode and special characters.
 - **Model Management**: Simple CLI for downloading and managing Whisper models.
-- **Clipboard Integration**: Context-aware commands using your current clipboard data.
+- **Library-First**: Drive a `HarpSession` from your own code (`docs/library.md`).
 
 ---
 
