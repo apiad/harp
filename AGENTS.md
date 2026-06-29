@@ -26,6 +26,14 @@ plans live under `docs/superpowers/`.
 
 ## Conventions
 
+- **Packaging:** the base package (`pip install harpio`) is the **streaming
+  engine only** — `faster-whisper` + `numpy`, no Wayland/desktop deps. The
+  dictation daemon (`harp start`) needs `harpio[cli]` (the `cli` extra:
+  `evdev`/`pynput`/`python-uinput`/`sounddevice`/`typer`/…). Servers that embed
+  the engine (e.g. warden) depend on the base package. `import harp` must stay
+  free of `sounddevice` at module load — it's lazily imported in
+  `MicrophoneSource.frames()` (patchable as `harp.audio.sd`). The makefile runs
+  tests with `--extra cli` so the daemon tests still cover.
 - **Commit straight to `main`** (no PR unless asked). Conventional commits.
 - **TDD.** Every change starts with a failing test. Tests run inline, never
   delegated. `make test` (fast) / `make test-integration` (real models, slow).

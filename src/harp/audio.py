@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Protocol, Union, runtime_checkable
 
 import numpy as np
-import sounddevice as sd
+
+# Lazily imported by MicrophoneSource.frames() so `import harp` stays free of
+# the PortAudio dependency (warden installs the engine without sounddevice).
+# Kept as a module attribute so tests can patch `harp.audio.sd`.
+sd: Any = None
 
 
 @runtime_checkable
@@ -44,11 +48,11 @@ class MicrophoneSource:
         self._device = device
         self._block_frames = int(sample_rate * block_ms / 1000)
         self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
-        self._stream: Optional[sd.InputStream] = None
+        self._stream: Any = None
         self._closed = False
 
     def _callback(
-        self, indata: Any, frames: int, time: Any, status: sd.CallbackFlags
+        self, indata: Any, frames: int, time: Any, status: Any
     ) -> None:
         # indata is float32 by default; convert to int16 bytes.
         import numpy as np
@@ -59,6 +63,11 @@ class MicrophoneSource:
     def frames(self) -> Iterable[bytes]:
         if self._closed:
             return iter(())
+        global sd
+        if sd is None:
+            import sounddevice
+
+            sd = sounddevice
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=self.channels,

@@ -8,11 +8,18 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "evdev>=1.9.3",
     "faster-whisper>=1.2.1",
+    "numpy>=2.4.2",
+]
+
+[project.optional-dependencies]
+# The Wayland dictation daemon (`harp start`) and its CLI. The streaming
+# engine (harp.HarpSession etc.) needs none of these — servers like warden
+# install the base package only.
+cli = [
+    "evdev>=1.9.3",
     "fuzzywuzzy>=0.18.0",
     "huggingface-hub>=1.6.0",
-    "numpy>=2.4.2",
     "pydantic-settings>=2.13.1",
     "pynput>=1.7.7",
     "python-dotenv>=1.2.2",
