@@ -41,4 +41,4 @@ def test_public_api_importable() -> None:
     assert hasattr(harp, "MicrophoneSource")
     assert hasattr(harp, "TranscriptEvent")
     assert hasattr(harp, "AudioSource")
-    assert harp.__version__ == "0.8.0"
+    assert harp.__version__ == "0.8.1"

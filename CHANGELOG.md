@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-29
+
 ### Changed
 - Streaming finalization now overlaps each chunk and commits by absolute
   segment timestamp, holding back the trailing `stream_overlap` seconds (cut
