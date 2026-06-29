@@ -195,7 +195,12 @@ def test_transcribe_writes_output_file(tmp_path, monkeypatch) -> None:
 
     # Stub the engine + detector so no model loads.
     monkeypatch.setattr(main, "_build_engine", lambda c: type(
-        "E", (), {"transcribe": staticmethod(lambda a, p, lang: "hello world")}
+        "E", (), {
+            "transcribe": staticmethod(lambda a, p, lang: "hello world"),
+            "transcribe_segments": staticmethod(
+                lambda a, p, lang: [(0.0, 1.0, "hello world")]
+            ),
+        }
     )())
     monkeypatch.setattr(main, "_build_detector", lambda c: __import__(
         "harp.vad", fromlist=["NullDetector"]

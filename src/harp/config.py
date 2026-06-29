@@ -52,6 +52,11 @@ class HarpConfig(BaseSettings):
     stream_max_segment: float = Field(
         default=25.0, description="Force-cut length (s) when no pause is found"
     )
+    stream_overlap: float = Field(
+        default=3.0,
+        description="Lead-in overlap (s) retained when finalizing a chunk, so a "
+        "weak model gets a clean onset; the overlap is deduped by timestamp",
+    )
     stream_vad: bool = Field(
         default=True, description="Use Silero VAD for chunk boundaries"
     )

@@ -152,11 +152,13 @@ def run_daemon(
         session = HarpSession(
             audio=src,
             transcribe=engine.transcribe,
+            transcribe_segments=engine.transcribe_segments,
             detector=_build_detector(config),
             slide_interval=config.stream_slide_interval,
             warmup=config.stream_warmup,
             silence_threshold=config.stream_silence_threshold,
             max_segment=config.stream_max_segment,
+            overlap=config.stream_overlap,
             language=config.local_language,
             transient=config.stream_transient,
         )
@@ -370,11 +372,13 @@ def transcribe(
         with HarpSession(
             audio=src,
             transcribe=engine.transcribe,
+            transcribe_segments=engine.transcribe_segments,
             detector=_build_detector(config),
             slide_interval=config.stream_slide_interval,
             warmup=config.stream_warmup,
             silence_threshold=config.stream_silence_threshold,
             max_segment=config.stream_max_segment,
+            overlap=config.stream_overlap,
             language=config.local_language,
             transient=preview or config.stream_transient,
         ) as session:

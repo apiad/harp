@@ -160,6 +160,61 @@ def test_transient_off_skips_warmup_preview_decode():
     assert tx.calls == []  # nothing decoded during warm-up either
 
 
+# ---- overlap + segment-timestamp dedup (tiny-model fix) ----
+
+
+def _marker_audio(n_seconds, sr=16000):
+    """Each 1s block is filled with its own second index as a marker value."""
+    a = np.zeros(n_seconds * sr, dtype=np.float32)
+    for k in range(n_seconds):
+        a[k * sr : (k + 1) * sr] = float(k)
+    return a
+
+
+class MarkerSegments:
+    """Returns one (start, end, 'w<value>') segment per 1s block of the chunk."""
+
+    def __call__(self, audio, prompt, language):
+        sr = 16000
+        n = audio.shape[0] // sr
+        return [
+            (float(i), float(i + 1), f"w{int(round(float(audio[i * sr])))}")
+            for i in range(n)
+        ]
+
+
+def test_overlap_dedup_no_duplicate_or_dropped_words():
+    st = StreamingTranscriber(
+        transcribe=lambda *a: "",
+        detector=NoSpeech(),
+        warmup=0.0,
+        max_segment=10.0,
+        overlap=3.0,
+        transcribe_segments=MarkerSegments(),
+    )
+    st.feed(_marker_audio(30))
+    for _ in range(10):  # drive successive force-cuts
+        st.step()
+    final = st.finalize()
+    # Despite 3s overlap re-decoded each chunk, every word appears exactly once.
+    assert final.committed.split() == [f"w{i}" for i in range(30)]
+
+
+def test_overlap_retains_lead_in_audio():
+    st = StreamingTranscriber(
+        transcribe=lambda *a: "",
+        detector=NoSpeech(),
+        warmup=0.0,
+        max_segment=10.0,
+        overlap=3.0,
+        transcribe_segments=MarkerSegments(),
+    )
+    st.feed(_marker_audio(15))
+    st.step()  # one force-cut at 10s
+    # 15s - (10s cut) + 3s retained overlap = 8s remains
+    assert abs(st._active.shape[0] - 8 * 16000) <= 16000
+
+
 # ---- Task 5: force-cut ----
 
 

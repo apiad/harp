@@ -47,6 +47,8 @@ class HarpSession:
         max_segment: float = 25.0,
         language: Optional[str] = None,
         transient: bool = False,
+        transcribe_segments=None,
+        overlap: float = 3.0,
     ) -> None:
         from harp.vad import NullDetector
 
@@ -64,6 +66,8 @@ class HarpSession:
             max_segment=max_segment,
             language=language,
             transient=transient,
+            transcribe_segments=transcribe_segments,
+            overlap=overlap,
         )
 
         self._queue: queue.Queue = queue.Queue()

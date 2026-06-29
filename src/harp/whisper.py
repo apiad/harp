@@ -120,6 +120,58 @@ class LocalWhisperEngine:
             else:
                 raise e
 
+    def transcribe_segments(
+        self,
+        audio_data: np.ndarray,
+        initial_prompt: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> List[tuple]:
+        """Like ``transcribe`` but returns ``(start, end, text)`` per segment.
+
+        Segment timestamps (seconds, relative to ``audio_data``) let the
+        streaming engine commit overlapped chunks by absolute audio time
+        instead of re-typing the overlap. Shares the same fail-soft fallback.
+        """
+        try:
+            if self.model is None:
+                self.load_model()
+
+            segments, _ = self.model.transcribe(
+                audio_data,
+                beam_size=self.beam_size,
+                initial_prompt=initial_prompt,
+                language=language,
+                vad_filter=False,
+            )
+            # Drop repetition hallucinations: a repeated token (e.g. "咱咱咱"
+            # from a weak model) has a very high compression ratio. 2.4 is the
+            # threshold faster-whisper itself uses to flag a failed decode.
+            # Normal speech sits ~1.5-2.2, so this never touches good text.
+            return [
+                (float(s.start), float(s.end), s.text)
+                for s in segments
+                if s.compression_ratio <= 2.4
+            ]
+
+        except Exception as e:
+            err_msg = str(e).lower()
+            is_compute_error = any(
+                x in err_msg for x in ["compute type", "int8", "float16"]
+            )
+            is_cuda_error = any(x in err_msg for x in ["cuda", "cublas", "cudnn"])
+            if (is_compute_error or is_cuda_error) and (
+                self.device != "cpu" or self.compute_type != "default"
+            ):
+                print(
+                    f"Warning: {e}. Falling back to device='cpu' and compute_type='default'."
+                )
+                self.device = "cpu"
+                self.compute_type = "default"
+                self.model = None
+                return self.transcribe_segments(audio_data, initial_prompt, language)
+            else:
+                raise e
+
     @staticmethod
     def list_local_models(download_root: Optional[str] = None) -> List[str]:
         """

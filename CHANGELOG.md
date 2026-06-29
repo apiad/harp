@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Streaming finalization now overlaps each chunk and commits by absolute
+  segment timestamp, holding back the trailing `stream_overlap` seconds (cut
+  mid-word, unreliable) to be re-decoded with full context in the next chunk.
+  This removes seam duplication and mid-word garbling, and recovers quiet tails
+  a single batch decode dropped. Re-adds `stream_overlap` (default 3.0s) and
+  `LocalWhisperEngine.transcribe_segments`.
+- Segment decodes drop repetition hallucinations (compression ratio > 2.4),
+  Whisper's own failed-decode signal — markedly improving small models on
+  fluent/pause-less audio. (Weak models like `tiny` can still hallucinate
+  sporadically; `base`+ recommended for production.)
+
 ## [0.8.0] - 2026-06-27
 
 ### Added

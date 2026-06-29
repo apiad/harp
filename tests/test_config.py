@@ -11,9 +11,9 @@ def test_streaming_defaults():
     assert c.stream_vad is True
     assert c.stream_transient is False
     assert c.stream_beam_size == 1
+    assert c.stream_overlap == 3.0
 
 
-def test_old_window_fields_removed():
+def test_old_window_field_removed():
     c = HarpConfig()
     assert not hasattr(c, "stream_window")
-    assert not hasattr(c, "stream_overlap")

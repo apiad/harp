@@ -25,6 +25,7 @@ def test_long_audio_streams_in_chunks_and_covers_text():
     with HarpSession(
         audio=src,
         transcribe=engine.transcribe,
+        transcribe_segments=engine.transcribe_segments,
         detector=SileroDetector(),
         slide_interval=2.0,  # realistic transient cadence; keeps the test bounded
         warmup=10.0,

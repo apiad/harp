@@ -55,14 +55,33 @@ the sample-counting cadence.
 - `stream_beam_size` — 1 (fast) … 5 (best quality, short clips).
 - `stream_transient` / `--preview` — live preview (not real-time on CPU `base`).
 
+## Overlap finalization (don't regress this)
+
+Fixed-window force-cuts land mid-word. Decoding that cold tail/onset garbles
+weak models and corrupts the seam. So `_commit_segments` (used when a
+`transcribe_segments` decoder is injected):
+
+- commits by **absolute audio time** (`_committed_abs`), skipping anything
+  already committed — exact overlap dedup, no fuzzy text matching;
+- **holds back** the trailing `overlap` seconds of a non-mid-stream chunk (cut
+  mid-word, unreliable) so the next chunk re-decodes it with full context;
+- retains exactly the uncommitted audio (`_committed_abs` onward) as lead-in;
+- has a forward-progress fallback: if holdback commits nothing (one giant
+  segment), it commits without holdback so the buffer can't stall.
+
+The string path (`transcribe` only, no segments) keeps the old drop-the-whole-
+prefix behaviour for back-compat and the transient preview.
+
 ## Known sharp edges
 
-- **Small-model hallucination on short/quiet chunks**: `tiny` emits repeated
-  non-English tokens (e.g. katakana) on near-silence VAD chunks. `base` is
-  unaffected. Mitigation (open): skip sub-threshold-speech chunks or check
-  `no_speech_prob` before committing a decode.
-- The `initial_prompt` is `committed[-200:]`; it aids continuity but a bad chunk
-  could in principle bias the next one. Observed robust on `base`.
+- **Weak-model hallucination**: `tiny` can still emit sporadic repetition
+  bursts (repeated CJK tokens) on isolated chunks — an intrinsic limit of the
+  model, not the chunking. The overlap fix + a compression-ratio > 2.4 segment
+  filter (`whisper.transcribe_segments`) removed the katakana-everywhere case
+  and made `base` robust, but `tiny` is not fully tamable. Recommend `base`+
+  for production; `tiny` for latency-critical, error-tolerant use.
+- The `initial_prompt` is `committed[-200:]`; it aids continuity. Observed
+  robust on `base`.
 
 ## Testing
 
