@@ -43,6 +43,8 @@ HarpSession(
     max_segment: float = 25.0,                # force-cut length when no pause
     language: Optional[str] = None,
     transient: bool = False,                  # live preview (costs ~2-4x; off = real-time)
+    transcribe_segments=None,                 # SegmentsFn enabling overlap finalization
+    overlap: float = 3.0,                     # lead-in seconds held back per chunk
 )
 ```
 
@@ -53,6 +55,13 @@ HarpSession(
   for VAD-based chunk boundaries.
 * `transient` — leave `False` for real-time finalize-only streaming; set `True`
   for a live word-by-word preview (re-decodes the in-progress chunk).
+* `transcribe_segments` — a `(audio, prompt, lang) -> [(start, end, text), …]`
+  function (e.g. `LocalWhisperEngine(...).transcribe_segments`). When provided,
+  finalization overlaps each chunk and commits by absolute segment timestamp,
+  holding back the trailing `overlap` seconds (cut mid-word) to be re-decoded
+  with full context next chunk — no seam duplication, clean onsets. Strongly
+  recommended; without it the engine falls back to a plain string decode that
+  drops the whole prefix.
 
 Methods: `events() -> Iterator[TranscriptEvent]`, `stop() -> None`,
 `final_text -> str`. Use as a context manager.

@@ -39,8 +39,14 @@ Stream-transcribe an audio file (any ffmpeg-readable container: wav, m4a, mp3,
 The engine finalizes a chunk at each VAD silence boundary (`stream_silence_threshold`),
 decoding it once and dropping its audio — finalized speech is never
 re-transcribed. In the default finalize-only mode decode work ≈ 1× audio
-(measured RTF ≈ 0.34 on `base`/CPU), so it keeps up with real-time. Tune
-`stream_warmup`, `stream_max_segment`, and `stream_beam_size` in `.harp.yaml`.
+(measured RTF ≈ 0.34 on `base`/CPU), so it keeps up with real-time. Each chunk
+is overlapped by `stream_overlap` seconds (held back and re-decoded with context
+to avoid mid-word garbling and seam duplication). Tune `stream_warmup`,
+`stream_max_segment`, `stream_overlap`, and `stream_beam_size` in `.harp.yaml`.
+
+**Model choice:** `base` is the recommended floor — robust and real-time on CPU.
+`tiny` is faster but can hallucinate sporadically on fluent/pause-less audio;
+use it only for latency-critical, error-tolerant cases.
 
 ### Hardware Settings Guide
 - **`--local-device auto`**: Harp will attempt to use CUDA if an NVIDIA GPU is found, otherwise it defaults to CPU.

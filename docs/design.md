@@ -44,6 +44,14 @@ per-step cost is bounded by `max_segment`. In finalize-only mode each chunk is
 decoded exactly once → decode work ≈ 1× audio. Measured RTF ≈ 0.34 on `base`/CPU
 (int8, beam 1) — ~3–4× faster than real-time, so lag cannot accumulate.
 
+**Overlap finalization.** A fixed-window force-cut lands mid-word, which garbles
+weak models and corrupts the commit seam. When a segment-aware decoder
+(`transcribe_segments`) is supplied, the engine commits chunks by **absolute
+segment timestamp** (exact overlap dedup) and **holds back** the trailing
+`overlap` seconds — that mid-word tail is re-decoded with full context in the
+next chunk instead of being committed cold. Repetition hallucinations (segment
+compression ratio > 2.4, Whisper's own failed-decode signal) are dropped.
+
 ## The session (`harp.session.HarpSession`)
 
 Drives the engine on a worker thread and yields `TranscriptEvent`s through a

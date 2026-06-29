@@ -39,6 +39,8 @@ For in-depth information, please refer to our documentation:
 - **Model Management CLI**: Download, list, and manage Whisper models (tiny, base, small, medium, large-v3) via `harp models`.
 - **Modern CLI**: Terminal UI powered by `Rich`.
 
+> **Model choice:** `base` is the recommended floor — robust and real-time on CPU. `tiny` is faster but can hallucinate on fluent/pause-less audio; use it only for latency-critical, error-tolerant cases.
+
 ## 🚀 Installation
 
 ### Using `uv` (Recommended)
