@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-30
+
+### Changed
+- Packaging: split the engine core from the CLI extra and made the
+  `sounddevice` import lazy, so the base `harpio` package imports cleanly in
+  headless/server environments with no audio device — e.g. warden's container,
+  which uses the transcribe engine without the CLI.
+
 ## [0.8.1] - 2026-06-29
 
 ### Changed
