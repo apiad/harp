@@ -132,12 +132,18 @@ class HarpSession:
         pending = 0
         try:
             for chunk in self._audio.frames():
-                if self._stop_event.is_set():
-                    break
                 pcm = self._bytes_to_float32(chunk)
                 if pcm.size:
                     self._transcriber.feed(pcm)
                     pending += pcm.shape[0]
+                # After stop is signalled, keep DRAINING the source into the
+                # buffer but skip the incremental decode — the terminal
+                # finalize() decodes the drained tail in one pass. Breaking
+                # here instead would clip the last utterance (everything since
+                # the previous silence boundary). The audio source ends the
+                # loop via its own exhaustion / close() sentinel.
+                if self._stop_event.is_set():
+                    continue
                 if pending >= step_samples:
                     pending = 0
                     last_pair = self._step_and_emit(last_pair)

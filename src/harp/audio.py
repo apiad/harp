@@ -81,7 +81,11 @@ class MicrophoneSource:
 
     def _iter_frames(self) -> Iterable[bytes]:
         try:
-            while not self._closed:
+            # Drain until the None sentinel — NOT `while not self._closed`.
+            # On stop, close() sets _closed and enqueues the sentinel; bailing
+            # on _closed would abandon frames already captured but not yet
+            # yielded (the last utterance in push-to-talk), clipping the tail.
+            while True:
                 item = self._queue.get()
                 if item is None:
                     return
@@ -93,8 +97,11 @@ class MicrophoneSource:
         if self._closed:
             return
         self._closed = True
-        self._queue.put(None)
+        # Stop the stream FIRST so no callback can enqueue a frame past the
+        # sentinel (which _iter_frames would never reach), THEN drop the
+        # sentinel after the last captured frame already in the queue.
         self._stop_stream()
+        self._queue.put(None)
 
     def _stop_stream(self) -> None:
         if self._stream is not None:

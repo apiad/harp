@@ -35,3 +35,31 @@ def test_microphone_source_close_is_idempotent() -> None:
         src = MicrophoneSource()
         src.close()
         src.close()  # no exception
+
+
+def test_iter_frames_drains_queued_audio_after_close() -> None:
+    # Push-to-talk stop: close() is called while captured frames are still
+    # queued (the last utterance). _iter_frames must yield them all before
+    # ending, or the tail is clipped. Regression for the dropped last sentence.
+    src = MicrophoneSource()
+    src._queue.put(b"aaaa")
+    src._queue.put(b"bbbb")
+    src.close()  # sets _closed, enqueues the None sentinel
+    assert list(src._iter_frames()) == [b"aaaa", b"bbbb"]
+
+
+def test_close_stops_stream_before_sentinel() -> None:
+    # The sentinel must go in AFTER the stream is stopped, so no callback can
+    # enqueue a frame past None (which _iter_frames would never reach).
+    with patch("harp.audio.sd") as sd_mock:
+        stream = MagicMock()
+        sd_mock.InputStream.return_value = stream
+        src = MicrophoneSource()
+        src._stream = stream
+        order = []
+        stream.stop.side_effect = lambda: order.append("stop")
+        real_put = src._queue.put
+        src._queue.put = lambda item: (order.append("sentinel"), real_put(item))[1] \
+            if item is None else real_put(item)
+        src.close()
+        assert order.index("stop") < order.index("sentinel")

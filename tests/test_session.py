@@ -114,3 +114,46 @@ def test_session_context_manager_closes_audio_source(two_word_wav: Path) -> None
         list(s.events())
 
     assert closed["called"] is True
+
+
+class _ListSource:
+    """Yields a fixed list of PCM frames, then ends. Deterministic."""
+
+    def __init__(self, frames: List[bytes], sr: int = 16000) -> None:
+        self.sample_rate = sr
+        self.channels = 1
+        self._frames = list(frames)
+
+    def frames(self):
+        for f in self._frames:
+            yield f
+
+    def close(self) -> None:
+        pass
+
+
+def test_run_drains_buffered_tail_after_stop_signalled() -> None:
+    # When stop is signalled, frames already available must still be fed so
+    # the terminal finalize() decodes the full tail. Dropping them clips the
+    # last utterance — the "ctrl+g ate my last sentence" bug.
+    frame = np.zeros(1600, dtype=np.int16).tobytes()  # 0.1s @ 16k
+    src = _ListSource([frame] * 5)
+
+    def count_transcribe(audio, prompt, language) -> str:
+        # Report how many samples reached the decoder.
+        return str(int(audio.shape[0]))
+
+    session = HarpSession(
+        audio=src,
+        transcribe=count_transcribe,
+        detector=None,          # NullDetector: no mid-stream finalize
+        warmup=1e18,            # never step-decode; all audio waits in buffer
+        max_segment=1e18,
+        slide_interval=1e18,
+    )
+    session._start()
+    session._stop_event.set()   # simulate stop() before frames are consumed
+    list(session.events())
+    session._worker.join(timeout=5.0)
+
+    assert session.final_text == str(5 * 1600)
