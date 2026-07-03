@@ -5,7 +5,7 @@ from harp.dictation import DictationSession
 from harp.events import TranscriptEvent
 from harp.session import HarpSession
 
-__version__ = "0.8.1"
+__version__ = "0.10.0"
 
 __all__ = [
     "AudioSource",
