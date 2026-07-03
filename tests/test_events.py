@@ -38,4 +38,8 @@ def test_public_api_importable() -> None:
     assert hasattr(harp, "MicrophoneSource")
     assert hasattr(harp, "TranscriptEvent")
     assert hasattr(harp, "AudioSource")
-    assert harp.__version__ == "0.10.0"
+    # __version__ must track the packaged version, not a hardcoded literal
+    # (which would break on every release bump).
+    from importlib.metadata import version
+
+    assert harp.__version__ == version("harpio")
