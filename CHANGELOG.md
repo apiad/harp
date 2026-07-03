@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-03
+
 ### Fixed
 - `FileSource.close()` no longer abandons already-decoded audio mid-iteration.
   Previously `frames()` bailed on `_closed` between blocks, so the blessed
