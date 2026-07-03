@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `FileSource.close()` no longer abandons already-decoded audio mid-iteration.
+  Previously `frames()` bailed on `_closed` between blocks, so the blessed
+  full-mode recipe `DictationSession(FileSource(path)).start()/.stop()` raced
+  to an **empty transcript**: `DictationSession.stop()` closes the source
+  before joining its decode worker, which clipped the whole clip. `FileSource`
+  now drains the eagerly-decoded clip to completion — the same graceful-drain
+  principle `MicrophoneSource` already followed — so the record-then-upload
+  recipe works without a manual `_worker.join()`.
+
 ## [0.9.0] - 2026-06-30
 
 ### Changed

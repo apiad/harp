@@ -130,6 +130,37 @@ def test_max_seconds_caps_the_buffer():
     assert lengths[0] < 10 * 1600
 
 
+def test_dictation_over_filesource_recipe(tmp_path):
+    # The blessed record-then-upload recipe: DictationSession(FileSource(...))
+    # with a plain start()/stop() and NO manual worker join. This is what a
+    # server does with an already-complete uploaded blob; it must buffer and
+    # decode the whole clip, not race the source's close() to an empty buffer.
+    import wave
+
+    import numpy as np
+
+    from harp.audio import FileSource
+
+    p = tmp_path / "clip.wav"
+    with wave.open(str(p), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(np.zeros(16000, dtype=np.int16).tobytes())  # 1.0s
+
+    got = {}
+
+    def transcribe(audio, prompt, language):
+        got["len"] = int(audio.shape[0])
+        return "ok"
+
+    d = DictationSession(FileSource(p), transcribe)
+    d.start()
+    text = d.stop()
+    assert text == "ok"
+    assert got.get("len", 0) >= int(16000 * 0.9)  # whole ~1s clip buffered
+
+
 def test_dictation_session_is_exported():
     import harp
 

@@ -140,13 +140,21 @@ class FileSource:
     def frames(self) -> Iterable[bytes]:
         from faster_whisper.audio import decode_audio
 
+        if self._closed:
+            return
         audio = decode_audio(self._path, sampling_rate=self.sample_rate)
         pcm = np.asarray(audio, dtype=np.float32) * 32768.0
         pcm = pcm.clip(-32768, 32767).astype(np.int16)
+        # The file is decoded eagerly and in full above; yielding the blocks is
+        # cheap. Do NOT bail on ``_closed`` mid-loop — that would abandon
+        # already-decoded audio a consumer is still draining (e.g.
+        # DictationSession.stop() closes the source before joining its worker),
+        # clipping the tail. Same graceful-drain principle as MicrophoneSource.
         for start in range(0, pcm.shape[0], self._block):
-            if self._closed:
-                return
             yield pcm[start : start + self._block].tobytes()
 
     def close(self) -> None:
+        # Idempotent end-of-input marker. Only meaningful before ``frames()``
+        # starts decoding; once decoding has begun the whole clip is already in
+        # memory and drains to completion (see ``frames``).
         self._closed = True
