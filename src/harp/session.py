@@ -180,4 +180,5 @@ class HarpSession:
     @staticmethod
     def _bytes_to_float32(buf: bytes) -> np.ndarray:
         from harp.audio import bytes_to_float32
+
         return bytes_to_float32(buf)

@@ -2,6 +2,7 @@
 push-to-talk utterances. Buffers audio while recording and decodes the whole
 clip once on stop against an injected (warm) transcribe callable. Pure of
 model/mic — unit-testable with a fake AudioSource and a fake transcribe."""
+
 from __future__ import annotations
 
 import threading
@@ -35,8 +36,7 @@ class DictationSession:
         if self._started:
             return
         self._started = True
-        self._worker = threading.Thread(
-            target=self._run, name="dictation", daemon=True)
+        self._worker = threading.Thread(target=self._run, name="dictation", daemon=True)
         self._worker.start()
 
     def _run(self) -> None:
@@ -78,6 +78,5 @@ class DictationSession:
             self._final_text = ""
             return ""
         audio = bytes_to_float32(pcm)
-        self._final_text = (self._transcribe(
-            audio, None, self._language) or "").strip()
+        self._final_text = (self._transcribe(audio, None, self._language) or "").strip()
         return self._final_text

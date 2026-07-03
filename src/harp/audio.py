@@ -59,9 +59,7 @@ class MicrophoneSource:
         self._stream: Any = None
         self._closed = False
 
-    def _callback(
-        self, indata: Any, frames: int, time: Any, status: Any
-    ) -> None:
+    def _callback(self, indata: Any, frames: int, time: Any, status: Any) -> None:
         # indata is float32 by default; convert to int16 bytes.
         import numpy as np
 

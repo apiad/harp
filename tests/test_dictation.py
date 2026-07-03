@@ -29,6 +29,7 @@ class _QueuedSource:
 
     def __init__(self, sr=16000):
         import queue
+
         self.sample_rate = sr
         self.channels = 1
         self._q = queue.Queue()
@@ -66,12 +67,12 @@ def test_no_decode_while_recording_then_one_on_stop():
     src = _ListSource([_frame(1600)] * 3)
     d = DictationSession(src, transcribe)
     d.start()
-    d._worker.join(timeout=5.0)   # source ends on its own
-    assert calls["n"] == 0        # nothing decoded while buffering
+    d._worker.join(timeout=5.0)  # source ends on its own
+    assert calls["n"] == 0  # nothing decoded while buffering
     text = d.stop()
     assert text == "hello world"
-    assert calls["n"] == 1        # exactly one decode, on stop
-    assert calls["lens"] == [3 * 1600]   # whole clip
+    assert calls["n"] == 1  # exactly one decode, on stop
+    assert calls["lens"] == [3 * 1600]  # whole clip
 
 
 def test_stop_drains_queued_tail():
@@ -107,7 +108,7 @@ def test_stop_is_idempotent():
     d = DictationSession(_ListSource([_frame(800)]), transcribe)
     d.start()
     assert d.stop() == "once"
-    assert d.stop() == "once"          # no re-decode, same text
+    assert d.stop() == "once"  # no re-decode, same text
     assert d.final_text == "once"
 
 
@@ -131,6 +132,7 @@ def test_max_seconds_caps_the_buffer():
 
 def test_dictation_session_is_exported():
     import harp
+
     assert harp.DictationSession is DictationSession
 
 
@@ -143,7 +145,8 @@ def test_dictation_transcribes_real_wav():
 
     wav = Path("tests/assets/ground_truth.wav")
     eng = LocalWhisperEngine(
-        model_size="base", device="cpu", compute_type="default", beam_size=1)
+        model_size="base", device="cpu", compute_type="default", beam_size=1
+    )
     d = DictationSession(FileAudioSource(wav), eng.transcribe)
     d.start()
     d._worker.join(timeout=120.0)
