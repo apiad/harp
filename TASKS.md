@@ -27,6 +27,7 @@ Put done tasks into the Archive.
 - [ ] Slice B — custom hotkeys / VAD-driven auto-stop for streaming sessions
 - [ ] Slice D — post-processing hooks layered on top of the committed prefix
 - [ ] Live empirical tuning of `stream_slide_interval` per model/device (needs a mic-equipped host)
+- [ ] `DictationSession(FileSource(...))` races to an empty transcript — `stop()` calls `source.close()` before joining the decode worker (`dictation.py:71-75`) and `FileSource.frames()` aborts on `_closed` (`audio.py:145-149`), so `start()`→`stop()` on a fast finite source buffers nothing. Root cause is conceptual: `DictationSession` models a live mic (stop = cut off ongoing capture); a complete file has nothing to cut off. Fix options: (a) `stop()` joins the worker before closing for self-terminating sources; or (b) document DictationSession as live-capture-only and add a one-shot `transcribe_file(path, engine)` helper for the record-then-upload server case. Found wiring warden's batch `/api/transcribe` (2026-07-03); warden worked around it by draining the source directly.
 
 ### Long-form streaming engine (VAD-segmented)
 > Spec: `docs/superpowers/specs/2026-06-27-streaming-vad-transcription-engine-design.md`
