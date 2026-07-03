@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from harp.dictation import DictationSession
 
@@ -126,3 +127,26 @@ def test_max_seconds_caps_the_buffer():
     # capped near 0.3s (4800 samples); never the full 16000.
     assert lengths[0] <= 16000 * 0.3 + 1600
     assert lengths[0] < 10 * 1600
+
+
+def test_dictation_session_is_exported():
+    import harp
+    assert harp.DictationSession is DictationSession
+
+
+@pytest.mark.slow
+def test_dictation_transcribes_real_wav():
+    from pathlib import Path
+
+    from harp.whisper import LocalWhisperEngine
+    from tests.fakes import FileAudioSource
+
+    wav = Path("tests/assets/ground_truth.wav")
+    eng = LocalWhisperEngine(
+        model_size="base", device="cpu", compute_type="default", beam_size=1)
+    d = DictationSession(FileAudioSource(wav), eng.transcribe)
+    d.start()
+    d._worker.join(timeout=120.0)
+    text = d.stop()
+    assert len(text) > 50
+    assert "existence" in text.lower()
