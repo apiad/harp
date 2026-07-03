@@ -14,12 +14,25 @@ consumers of its event stream.
   Injected `transcribe` callable + `SpeechDetector`.
 - `src/harp/session.py` — `HarpSession`: threads the engine, emits
   `TranscriptEvent`s. Step cadence is **audio-time-driven** (not wall-clock).
+- `src/harp/dictation.py` — `DictationSession`: **full / record-then-transcribe**
+  mode for bounded push-to-talk. Buffers the whole clip on a worker thread,
+  decodes once on `stop()`. The other half of the two-mode model (below).
 - `src/harp/events.py` — `TranscriptEvent(committed, transient, is_final, ts)`.
 - `src/harp/vad.py` — `SpeechDetector` protocol; `SileroDetector`, `NullDetector`.
 - `src/harp/audio.py` — `AudioSource` protocol; `MicrophoneSource`, `FileSource`.
 - `src/harp/whisper.py` — `LocalWhisperEngine` (faster-whisper wrapper).
 - `src/harp/cli/` — `main.py` (commands + `_build_engine`/`_build_detector`),
   `display.py`, `hotkey.py`, `clipboard.py`.
+
+**Two library modes** (pick by *bounded vs unbounded* audio):
+
+- **`DictationSession`** — full / record-then-transcribe. Bounded push-to-talk
+  utterances. One decode of the whole clip on `stop()`; higher quality, no
+  seams, no tail-drop. For an **already-complete** blob (server record-then-
+  upload) it works over `FileSource`; the threaded buffering adds nothing there,
+  so a leaner consumer may just drain the source and decode once.
+- **`HarpSession`** — incremental / streaming. Unbounded long-form (meetings, a
+  long upload). Yields `TranscriptEvent`s progressively via `.events()`.
 
 Design + rationale: `docs/design.md`. Public API: `docs/library.md`. Specs and
 plans live under `docs/superpowers/`.

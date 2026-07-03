@@ -72,6 +72,26 @@ weak models and corrupts the seam. So `_commit_segments` (used when a
 The string path (`transcribe` only, no segments) keeps the old drop-the-whole-
 prefix behaviour for back-compat and the transient preview.
 
+## AudioSource.close() must drain, not abort (don't regress this)
+
+An `AudioSource`'s `close()` means **"no more *new* input — emit what's already
+captured, then end,"** NOT "abort now." A consumer may call `close()` and keep
+draining `frames()`; abandoning buffered/decoded audio at that point clips the
+tail. Both bundled sources follow this:
+
+- `MicrophoneSource.close()` enqueues a `None` sentinel *after* the last
+  captured frame; `_iter_frames` drains to the sentinel (not `while not
+  _closed`) so the final push-to-talk utterance survives.
+- `FileSource` decodes the whole file eagerly in `frames()`, then yields the
+  blocks *without* bailing on `_closed` — the clip drains to completion.
+
+Why it matters: `DictationSession.stop()` closes the source **before** joining
+its decode worker. A `close()` that aborted mid-iteration (FileSource once did)
+raced the worker to an **empty transcript** for the blessed
+`DictationSession(FileSource(path)).start()/.stop()` recipe. Fixed 2026-07-03
+(harpio 0.10.1); regression tests in `tests/test_audio_file.py` and
+`tests/test_dictation.py`. Any new `AudioSource` must drain on close too.
+
 ## Known sharp edges
 
 - **Weak-model hallucination**: `tiny` can still emit sporadic repetition
