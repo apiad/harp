@@ -179,7 +179,5 @@ class HarpSession:
 
     @staticmethod
     def _bytes_to_float32(buf: bytes) -> np.ndarray:
-        if not buf:
-            return np.zeros(0, dtype=np.float32)
-        ints = np.frombuffer(buf, dtype=np.int16)
-        return ints.astype(np.float32) / 32768.0
+        from harp.audio import bytes_to_float32
+        return bytes_to_float32(buf)

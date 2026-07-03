@@ -63,3 +63,24 @@ def test_close_stops_stream_before_sentinel() -> None:
             if item is None else real_put(item)
         src.close()
         assert order.index("stop") < order.index("sentinel")
+
+
+def test_bytes_to_float32_converts_int16_pcm() -> None:
+    import numpy as np
+
+    from harp.audio import bytes_to_float32
+    pcm = np.array([0, 32767, -32768], dtype=np.int16).tobytes()
+    out = bytes_to_float32(pcm)
+    assert out.dtype == np.float32
+    assert out.shape == (3,)
+    assert abs(out[0]) < 1e-6
+    assert out[1] == np.float32(32767 / 32768.0)
+
+
+def test_bytes_to_float32_empty() -> None:
+    import numpy as np
+
+    from harp.audio import bytes_to_float32
+    out = bytes_to_float32(b"")
+    assert out.dtype == np.float32
+    assert out.shape == (0,)

@@ -14,6 +14,14 @@ import numpy as np
 sd: Any = None
 
 
+def bytes_to_float32(buf: bytes) -> np.ndarray:
+    """Convert 16-bit mono PCM bytes to a float32 array in [-1, 1)."""
+    if not buf:
+        return np.zeros(0, dtype=np.float32)
+    ints = np.frombuffer(buf, dtype=np.int16)
+    return ints.astype(np.float32) / 32768.0
+
+
 @runtime_checkable
 class AudioSource(Protocol):
     """Yields PCM int16 mono frames until exhausted or closed."""
