@@ -14,7 +14,7 @@ WER computed against `tests/assets/ground_truth.txt`, 200 reference words,
 case/punctuation-insensitive.
 
 Harness: `.playground/harp-realtime/` (`bench_harp.py`, `bench_window.py`,
-`bench_moonshine.py`, `bench_matrix.py`, `bench_cuda.py`).
+`bench_moonshine.py`, `bench_matrix.py`, `bench_cuda.py`, `bench_tail.py`).
 
 ## Finding 1 — Whisper's decode cost is flat in buffer length
 
@@ -105,6 +105,42 @@ is_complete, is_updated, has_text_changed, words: [WordTiming(word, start, end,
 confidence)], last_transcription_latency_ms)`. Completed lines ≈ `committed`;
 the open line ≈ `transient`. Word timings and per-update latency come free.
 
+## Finding 5 — Tail latency is O(duration) today, and could be O(1)
+
+"Tail latency" = wall time from stop-recording to final text. This is the metric
+the dictation front-ends are judged on. `base` int8, `cpu_threads=4`:
+
+| scenario | tail |
+|---|---:|
+| whole-clip at `stop()` — 10 s utterance | 3.39 s |
+| whole-clip at `stop()` — 30 s utterance | 4.78 s |
+| whole-clip at `stop()` — 73 s utterance | **12.51 s** |
+| batched (`bs=8`) — 73 s utterance | 8.38 s |
+| decode a 5 s tail only (streaming-finalized) | 4.66 s |
+| decode an 8 s tail only (streaming-finalized) | 4.23 s |
+
+Two things:
+
+- **`DictationSession` — the mode all three consumers use (`aegis`, `alia`,
+  `warden`) — is the O(duration) path.** It buffers the whole clip and decodes
+  it at `stop()`, so tail grows with utterance length: 3.4 s → 4.8 s → 12.5 s.
+  If finalization happened during the pauses instead (which
+  `StreamingTranscriber` already does), the tail would be one bounded decode —
+  **O(1), ~3.5–4.5 s here** — regardless of how long the user spoke.
+- **`BatchedInferencePipeline` (faster-whisper 1.2.1) helps only multi-window
+  tails**: 12.51 s → 8.38 s on the 73 s clip (~1.5×), but neutral-to-worse at
+  10 s and 30 s (a single 30 s window has nothing to batch). Small quality cost:
+  WER 8.5 % sequential → 10.0 % batched.
+
+### Caveat on these numbers
+
+This host throttles hard and the run-to-run variance is large (the same ~2 s
+decode measured 3.6 s and 8.4 s in different blocks). Trust the *scaling shape*,
+not the absolute values. In particular, `cpu_threads=8` (logical) measured worse
+than `cpu_threads=4` (physical) on **every** row — plausible, since there are 4
+physical cores, but the 8-thread block ran second, so thermal drift is a
+confound. **Needs an A/B/A re-run before acting on it.**
+
 ## What the field actually does (survey)
 
 - **`ufal/whisper_streaming`** (Macháček et al., IJCNLP 2023) — LocalAgreement-2:
@@ -128,9 +164,16 @@ the open line ≈ `transient`. Word timings and per-update latency come free.
   Zipformer transducer (built for CPU realtime), Kyutai STT (delayed streams,
   0.5 s delay, CC-BY-4.0 weights, GPU-oriented).
 
-## Open probe
+## Open probes
 
-**sherpa-onnx streaming Zipformer** was not benchmarked and is the most
+Three things were not measured and should be before designing around them:
+
+1. **Streaming-path WER vs whole-clip WER.** Finalize-during-recording decodes
+   chunks without full-utterance context; the overlap-holdback machinery is
+   meant to absorb that, but the cost is unmeasured. This gates making the
+   streaming path the default for dictation.
+2. **`cpu_threads` = physical vs logical cores**, A/B/A to remove thermal drift.
+3. **sherpa-onnx streaming Zipformer** was not benchmarked and is the most
 promising untested candidate for a cheap preview tier: a true streaming
 transducer, designed for CPU realtime, Python bindings, much smaller than
 Moonshine small. Measure it the same way before designing around it.
